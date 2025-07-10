@@ -20,8 +20,10 @@ class Message:
     role: Optional[str] = None  # system, user, assistant, tool
     content: Optional[str] = None
     message_order: Optional[int] = None
-    token_count: Optional[int] = None
     message_timestamp: Optional[datetime] = None
+    
+    # Token count - only populated for assistant messages (from completion_tokens)
+    token_count: Optional[int] = None
 
     def to_dict(self) -> Dict[str, Any]:
         """Convert to dictionary with proper datetime serialization."""
@@ -59,7 +61,6 @@ class TraceRecord:
     trace_id: str = field(default_factory=lambda: str(uuid.uuid4()))
     session_id: Optional[str] = None
     user_id: Optional[str] = None
-    request_id: Optional[str] = None
     
     # Request Metadata
     model: Optional[str] = None
@@ -90,16 +91,24 @@ class TraceRecord:
     choice_index: Optional[int] = None
     response_id: Optional[str] = None
     
-    # Usage
+    # Usage - Aggregate Counts
     prompt_tokens: Optional[int] = None
     completion_tokens: Optional[int] = None
     total_tokens: Optional[int] = None
     
+    # Detailed Prompt Token Breakdown
+    prompt_cached_tokens: Optional[int] = None
+    prompt_audio_tokens: Optional[int] = None
+    
+    # Detailed Completion Token Breakdown
+    completion_reasoning_tokens: Optional[int] = None
+    completion_audio_tokens: Optional[int] = None
+    completion_accepted_prediction_tokens: Optional[int] = None
+    completion_rejected_prediction_tokens: Optional[int] = None
+    
     # Performance Metrics
     total_latency_ms: Optional[float] = None
-    first_token_latency_ms: Optional[float] = None
     tokens_per_second: Optional[float] = None
-    queue_time_ms: Optional[float] = None
     processing_time_ms: Optional[float] = None
     
     # Error Handling
@@ -113,7 +122,6 @@ class TraceRecord:
     rate_limit_remaining: Optional[int] = None
     rate_limit_reset: Optional[datetime] = None
     quota_consumed: Optional[float] = None
-    priority_tier: Optional[str] = None
     
     # Data Completeness Tracking
     data_completeness_score: Optional[float] = None
@@ -123,9 +131,6 @@ class TraceRecord:
     # Technical Details
     request_size_bytes: Optional[int] = None
     response_size_bytes: Optional[int] = None
-    compression_used: Optional[bool] = None
-    connection_reused: Optional[bool] = None
-    server_region: Optional[str] = None
     
     # Timestamps for Lifecycle
     trace_created_at: Optional[datetime] = field(default_factory=datetime.now)

@@ -139,6 +139,20 @@ def parse_openai_response(response, content_data: bytes = None) -> Dict[str, Any
                     parsed_data['prompt_tokens'] = usage.get('prompt_tokens')
                     parsed_data['completion_tokens'] = usage.get('completion_tokens')
                     parsed_data['total_tokens'] = usage.get('total_tokens')
+                    
+                    # Extract detailed prompt token breakdown
+                    if 'prompt_tokens_details' in usage:
+                        prompt_details = usage['prompt_tokens_details']
+                        parsed_data['prompt_cached_tokens'] = prompt_details.get('cached_tokens')
+                        parsed_data['prompt_audio_tokens'] = prompt_details.get('audio_tokens')
+                    
+                    # Extract detailed completion token breakdown  
+                    if 'completion_tokens_details' in usage:
+                        completion_details = usage['completion_tokens_details']
+                        parsed_data['completion_reasoning_tokens'] = completion_details.get('reasoning_tokens')
+                        parsed_data['completion_audio_tokens'] = completion_details.get('audio_tokens')
+                        parsed_data['completion_accepted_prediction_tokens'] = completion_details.get('accepted_prediction_tokens')
+                        parsed_data['completion_rejected_prediction_tokens'] = completion_details.get('rejected_prediction_tokens')
                 
                 # Extract response content and metadata
                 if 'choices' in response_json and response_json['choices']:
@@ -219,6 +233,25 @@ def extract_conversation_messages(messages_data: List[Dict]) -> List[Message]:
             message_timestamp=datetime.now()
         )
         messages.append(message)
+    
+    return messages
+
+
+def populate_assistant_message_tokens(messages: List[Message], completion_tokens: int) -> List[Message]:
+    """Populate token_count for assistant messages using completion_tokens."""
+    assistant_messages = [msg for msg in messages if msg.role == 'assistant']
+    
+    if assistant_messages and completion_tokens:
+        # For single assistant message, assign all completion tokens
+        if len(assistant_messages) == 1:
+            assistant_messages[0].token_count = completion_tokens
+        else:
+            # For multiple assistant messages, distribute proportionally by content length
+            total_assistant_chars = sum(len(msg.content or '') for msg in assistant_messages)
+            if total_assistant_chars > 0:
+                for msg in assistant_messages:
+                    char_ratio = len(msg.content or '') / total_assistant_chars
+                    msg.token_count = round(completion_tokens * char_ratio)
     
     return messages
 

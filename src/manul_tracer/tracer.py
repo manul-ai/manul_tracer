@@ -8,7 +8,7 @@ from typing import Any
 from .models import TraceRecord
 from .utils import (
     parse_openai_request, parse_openai_response, calculate_performance_metrics,
-    categorize_error
+    categorize_error, populate_assistant_message_tokens
 )
 
 
@@ -57,7 +57,7 @@ class LogResponse(httpx.Response):
     def _parse_and_update_trace(self):
         """Parse captured streaming content and update trace record"""
         try:
-            from .utils import parse_openai_response, calculate_performance_metrics
+            from .utils import parse_openai_response, calculate_performance_metrics, populate_assistant_message_tokens
             
             # Parse the captured streaming content
             response_data = parse_openai_response(self, self._captured_content)
@@ -66,6 +66,15 @@ class LogResponse(httpx.Response):
             for key, value in response_data.items():
                 if hasattr(self._trace_record, key):
                     setattr(self._trace_record, key, value)
+            
+            # Populate assistant message token counts
+            if (hasattr(self._trace_record, 'completion_tokens') and 
+                self._trace_record.completion_tokens and 
+                hasattr(self._trace_record, 'full_conversation') and 
+                self._trace_record.full_conversation):
+                self._trace_record.full_conversation = populate_assistant_message_tokens(
+                    self._trace_record.full_conversation, self._trace_record.completion_tokens
+                )
             
             # Recalculate performance metrics now that we have token counts
             if hasattr(self._trace_record, 'total_tokens') and self._trace_record.total_tokens:
@@ -209,6 +218,12 @@ class TracedTransport(httpx.BaseTransport):
             for key, value in response_data.items():
                 if hasattr(trace, key):
                     setattr(trace, key, value)
+            
+            # Populate assistant message token counts
+            if trace.completion_tokens and trace.full_conversation:
+                trace.full_conversation = populate_assistant_message_tokens(
+                    trace.full_conversation, trace.completion_tokens
+                )
             
             # Calculate performance metrics
             metrics = calculate_performance_metrics(
