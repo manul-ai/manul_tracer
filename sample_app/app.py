@@ -1,11 +1,15 @@
 import streamlit as st
 import openai
 import os
-import httpx
+
 from datetime import datetime
 from dotenv import load_dotenv
+from manul_tracer import TracedClient
 
 load_dotenv()
+
+# Global traced client for statistics tracking
+traced_client = TracedClient(proxies=os.getenv("HTTPS_PROXY") or os.getenv("HTTP_PROXY"))
 
 def initialize_session_state():
     if "messages" not in st.session_state:
@@ -14,8 +18,7 @@ def initialize_session_state():
         st.session_state.session_id = datetime.now().strftime("%Y%m%d_%H%M%S")
 
 def get_openai_response(messages: list[dict[str, str]], api_key: str) -> str:
-    http_client = httpx.Client(proxies=os.getenv("HTTPS_PROXY") or os.getenv("HTTP_PROXY"))
-    client = openai.OpenAI(api_key=api_key, http_client=http_client)
+    client = openai.OpenAI(api_key=api_key, http_client=traced_client)
     response = client.chat.completions.create(
         model="gpt-3.5-turbo",
         messages=messages,
@@ -40,6 +43,13 @@ def main():
         st.header("Session Info")
         st.write(f"Session ID: {st.session_state.session_id}")
         st.write(f"Messages: {len(st.session_state.messages)}")
+        
+        st.header("API Tracing Stats")
+        stats = traced_client.get_stats()
+        st.write(f"Total Calls: {stats['total_calls']}")
+        st.write(f"Successful Calls: {stats['successful_calls']}")
+        st.write(f"Total Tokens: {stats['total_tokens']}")
+        st.write(f"Avg Duration: {stats['average_duration']:.2f}s")
         
         if st.button("Clear Session"):
             st.session_state.messages = []
