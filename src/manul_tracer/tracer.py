@@ -26,6 +26,15 @@ trace_logger.setLevel(logging.DEBUG)  # Ensure debug traces are shown
 class LogResponse(httpx.Response):
     """Custom Response class that logs streaming content during consumption"""
     
+    def __init__(self, *args, **kwargs):
+        super().__init__(*args, **kwargs)
+        self._captured_content = b""
+        self._trace_record = None
+    
+    def set_trace_record(self, trace_record):
+        """Set the trace record to update with streaming data"""
+        self._trace_record = trace_record
+    
     def iter_bytes(self, chunk_size: int = 1024):
         """Override iter_bytes to log chunks as they're consumed"""
         trace_logger.info("  Starting to read streaming response...")
@@ -35,10 +44,53 @@ class LogResponse(httpx.Response):
         for chunk in super().iter_bytes(chunk_size):
             chunk_count += 1
             total_size += len(chunk)
+            self._captured_content += chunk
             trace_logger.info(f"  Received chunk {chunk_count}, total size: {total_size} bytes. Chunk content: {chunk}")
             yield chunk
         
         trace_logger.info(f"  Streaming complete: {chunk_count} chunks, {total_size} total bytes")
+        
+        # Parse captured content and update trace record
+        if self._trace_record and self._captured_content:
+            self._parse_and_update_trace()
+    
+    def _parse_and_update_trace(self):
+        """Parse captured streaming content and update trace record"""
+        try:
+            from .utils import parse_openai_response, calculate_performance_metrics
+            
+            # Parse the captured streaming content
+            response_data = parse_openai_response(self, self._captured_content)
+            
+            # Update trace record with response data
+            for key, value in response_data.items():
+                if hasattr(self._trace_record, key):
+                    setattr(self._trace_record, key, value)
+            
+            # Recalculate performance metrics now that we have token counts
+            if hasattr(self._trace_record, 'total_tokens') and self._trace_record.total_tokens:
+                # Get timing info from trace record
+                if (self._trace_record.request_timestamp and 
+                    self._trace_record.response_timestamp):
+                    
+                    start_time = self._trace_record.request_timestamp.timestamp()
+                    end_time = self._trace_record.response_timestamp.timestamp()
+                    
+                    metrics = calculate_performance_metrics(
+                        start_time, end_time, 
+                        total_tokens=self._trace_record.total_tokens
+                    )
+                    
+                    for key, value in metrics.items():
+                        if hasattr(self._trace_record, key):
+                            setattr(self._trace_record, key, value)
+            
+            # Update completeness and log enhanced trace
+            self._trace_record.update_completeness()
+            trace_logger.debug(f"ENHANCED_STREAMING_TRACE: {self._trace_record.to_json()}")
+            
+        except Exception as e:
+            trace_logger.error(f"Error parsing streaming response: {e}")
 
 
 class TracedTransport(httpx.BaseTransport):
@@ -190,6 +242,8 @@ class TracedTransport(httpx.BaseTransport):
                     stream=response.stream,
                     extensions=response.extensions,
                 )
+                # Pass trace record so streaming content can update it
+                logged_response.set_trace_record(trace)
                 return logged_response
             
             return response

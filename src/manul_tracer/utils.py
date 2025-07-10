@@ -99,6 +99,12 @@ def parse_openai_response(response, content_data: bytes = None) -> Dict[str, Any
             'x-ratelimit-remaining-tokens': 'quota_consumed'
         }
         
+        # Additional headers to extract
+        additional_headers = {
+            'cf-ray': 'server_region',  # Cloudflare ray ID can indicate region
+            'server': 'server_region'
+        }
+        
         for header_name, field_name in rate_limit_headers.items():
             if header_name in headers:
                 value = headers[header_name]
