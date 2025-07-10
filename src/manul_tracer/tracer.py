@@ -3,7 +3,13 @@ import json
 import logging
 import time
 from datetime import datetime
-from typing import Iterator, Optional, Dict, Any
+from typing import Any
+
+from .models import TraceRecord
+from .utils import (
+    parse_openai_request, parse_openai_response, calculate_performance_metrics,
+    categorize_error
+)
 
 
 # Configure logging for trace output
@@ -14,6 +20,7 @@ logging.basicConfig(
 )
 
 trace_logger = logging.getLogger('manul_tracer')
+trace_logger.setLevel(logging.DEBUG)  # Ensure debug traces are shown
 
 
 class LogResponse(httpx.Response):
@@ -28,8 +35,7 @@ class LogResponse(httpx.Response):
         for chunk in super().iter_bytes(chunk_size):
             chunk_count += 1
             total_size += len(chunk)
-            if chunk_count % 10 == 0:  # Log every 10th chunk to avoid spam
-                trace_logger.info(f"  Received chunk {chunk_count}, total size: {total_size} bytes")
+            trace_logger.info(f"  Received chunk {chunk_count}, total size: {total_size} bytes. Chunk content: {chunk}")
             yield chunk
         
         trace_logger.info(f"  Streaming complete: {chunk_count} chunks, {total_size} total bytes")
@@ -38,7 +44,7 @@ class LogResponse(httpx.Response):
 class TracedTransport(httpx.BaseTransport):
     """Custom httpx transport that logs all requests and responses"""
     
-    def __init__(self, wrapped_transport: Optional[httpx.BaseTransport] = None):
+    def __init__(self, wrapped_transport:httpx.BaseTransport | None = None):
         self.wrapped_transport = wrapped_transport or httpx.HTTPTransport()
         self.stats = {
             'total_calls': 0,
@@ -111,39 +117,95 @@ class TracedTransport(httpx.BaseTransport):
     
     
     def handle_request(self, request: httpx.Request) -> httpx.Response:
-        """Handle request with logging and statistics tracking"""
+        """Handle request with comprehensive tracing and logging"""
         self.stats['total_calls'] += 1
         start_time = time.time()
+        request_timestamp = datetime.now()
         
-        # Log the outgoing request
+        # Create trace record
+        trace = TraceRecord(request_timestamp=request_timestamp)
+        
+        # Parse request data
+        request_data = parse_openai_request(request)
+        for key, value in request_data.items():
+            if hasattr(trace, key):
+                setattr(trace, key, value)
+        
+        # Log the outgoing request (simplified)
         self._log_request(request)
         
         try:
             # Delegate to the wrapped transport
             response = self.wrapped_transport.handle_request(request)
-            duration = time.time() - start_time
+            end_time = time.time()
+            response_timestamp = datetime.now()
+            
+            # Update trace with response timing
+            trace.response_timestamp = response_timestamp
+            duration = end_time - start_time
             self.stats['total_duration'] += duration
             
-            # Log the response
+            # Parse response data
+            response_content = None
+            if not self._is_streaming_response(response):
+                try:
+                    response_content = response.content
+                except Exception:
+                    pass
+            
+            response_data = parse_openai_response(response, response_content)
+            for key, value in response_data.items():
+                if hasattr(trace, key):
+                    setattr(trace, key, value)
+            
+            # Calculate performance metrics
+            metrics = calculate_performance_metrics(
+                start_time, end_time, 
+                total_tokens=trace.total_tokens
+            )
+            for key, value in metrics.items():
+                if hasattr(trace, key):
+                    setattr(trace, key, value)
+            
+            # Mark as successful
+            trace.success = True
+            trace.mark_completed()
+            
+            # Update stats
+            if trace.total_tokens:
+                self.stats['total_tokens'] += trace.total_tokens
+            self.stats['successful_calls'] += 1
+            
+            # Log comprehensive trace data
+            trace_logger.debug(f"COMPREHENSIVE_TRACE: {trace.to_json()}")
+            
+            # Log the response (simplified)
             self._log_response(response, duration)
             
             # Handle streaming responses with proper LogResponse
             if self._is_streaming_response(response):
-                # Create LogResponse that will log chunks during consumption
                 logged_response = LogResponse(
                     status_code=response.status_code,
                     headers=response.headers,
                     stream=response.stream,
                     extensions=response.extensions,
                 )
-                self.stats['successful_calls'] += 1
                 return logged_response
             
-            self.stats['successful_calls'] += 1
             return response
             
         except Exception as e:
-            duration = time.time() - start_time
+            end_time = time.time()
+            duration = end_time - start_time
+            
+            # Mark trace as failed
+            error_category, error_code = categorize_error(e)
+            trace.mark_error(error_code, str(e), error_category)
+            trace.total_latency_ms = (end_time - start_time) * 1000
+            
+            # Log comprehensive trace data even for errors
+            trace_logger.debug(f"COMPREHENSIVE_TRACE: {trace.to_json()}")
+            
             trace_logger.error(f"← ERROR after {duration:.3f}s: {e}")
             raise
     
@@ -169,7 +231,7 @@ class TracedClient(httpx.Client):
         # Keep reference to our transport for stats
         self._traced_transport = traced_transport
     
-    def get_stats(self) -> Dict[str, Any]:
+    def get_stats(self) -> dict[str, Any]:
         """Get tracing statistics for display in Streamlit"""
         stats = self._traced_transport.stats.copy()
         
