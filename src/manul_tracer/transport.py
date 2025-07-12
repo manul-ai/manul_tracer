@@ -19,9 +19,7 @@ console_handler.setFormatter(formatter)
 logger.addHandler(console_handler)
 from .parsers import (
     parse_openai_request,
-    parse_openai_response,
     calculate_performance_metrics,
-    populate_assistant_message_tokens,
     categorize_error,
     is_streaming_request,
     extract_conversation_messages
@@ -62,56 +60,17 @@ class LogResponse(httpx.Response):
         """Complete trace parsing after content is captured."""
         if self.trace_record and self.traced_transport and self._captured_content:
             try:
-                # Create a mock response with captured content for parsing
-                mock_response = type('MockResponse', (), {
-                    'content': self._captured_content,
-                    'headers': self.headers,
-                    'status_code': self.status_code
-                })()
-                
-                # Parse the captured response
-                response_data = parse_openai_response(mock_response, self.trace_record.stream)
-                
-                # Update trace with response data
-                self.trace_record.prompt_tokens = response_data.get('prompt_tokens', 0)
-                self.trace_record.completion_tokens = response_data.get('completion_tokens', 0)
-                self.trace_record.total_tokens = response_data.get('total_tokens', 0)
-                self.trace_record.finish_reason = response_data.get('finish_reason')
-                self.trace_record.assistant_response = response_data.get('content')
-                
-                # Detailed token breakdowns
-                self.trace_record.prompt_cached_tokens = response_data.get('prompt_cached_tokens')
-                self.trace_record.prompt_audio_tokens = response_data.get('prompt_audio_tokens')
-                self.trace_record.completion_reasoning_tokens = response_data.get('completion_reasoning_tokens')
-                self.trace_record.completion_audio_tokens = response_data.get('completion_audio_tokens')
-                self.trace_record.completion_accepted_prediction_tokens = response_data.get('completion_accepted_prediction_tokens')
-                self.trace_record.completion_rejected_prediction_tokens = response_data.get('completion_rejected_prediction_tokens')
-                
-                # Rate limit info
-                if response_data.get('rate_limit_requests_remaining'):
-                    self.trace_record.rate_limit_remaining = response_data.get('rate_limit_requests_remaining')
+                # Update trace record from response
+                self.trace_record.from_successful_response(
+                    self._captured_content,
+                    self.headers,
+                    self.status_code
+                )
                 
                 # Update statistics
                 self.traced_transport.stats['total_prompt_tokens'] += self.trace_record.prompt_tokens
                 self.traced_transport.stats['total_completion_tokens'] += self.trace_record.completion_tokens
                 self.traced_transport.stats['total_tokens'] += self.trace_record.total_tokens
-                
-                # Add assistant message if we have response content
-                if response_data.get('assistant_content'):
-                    assistant_message = Message(
-                        role="assistant",
-                        content=response_data['assistant_content']
-                    )
-                    self.trace_record.full_conversation.append(assistant_message)
-                
-                # Populate token counts for messages
-                self.trace_record.full_conversation = populate_assistant_message_tokens(
-                    self.trace_record.full_conversation, 
-                    self.trace_record.completion_tokens
-                )
-                
-                # Calculate data completeness
-                self.trace_record.update_completeness()
                 
                 # Save to repository if available
                 if self.traced_transport.repository:
@@ -153,7 +112,7 @@ class LogResponse(httpx.Response):
 class TracedTransport(httpx.BaseTransport):
     """Transport that intercepts and traces all HTTP requests."""
     
-    def __init__(self, wrapped_transport=None, repository=None):
+    def __init__(self, wrapped_transport=None, repository=None, session_id=None, tracer=None):
         self.wrapped_transport = wrapped_transport or httpx.HTTPTransport()
         self.stats = {
             'total_requests': 0,
@@ -164,15 +123,22 @@ class TracedTransport(httpx.BaseTransport):
             'failed_requests': 0
         }
         self.repository = repository
+        self.session_id = session_id or "default"
+        self.tracer = tracer
 
     def handle_request(self, request: httpx.Request) -> httpx.Response:
         """Intercept and trace HTTP requests."""
         self.stats['total_requests'] += 1
         start_time = datetime.now()
         
+        # Initialize session timestamps if this is first request
+        if self.tracer:
+            self.tracer._initialize_session_if_needed()
+            logger.info(f"Processing request #{self.stats['total_requests']} for session {self.session_id}")
+        
         # Create initial trace record
         trace = TraceRecord(
-            session_id="default",
+            session_id=self.session_id,
             trace_id=f"trace_{self.stats['total_requests']}",
             request_timestamp=start_time,
             provider="openai"

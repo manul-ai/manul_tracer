@@ -12,6 +12,8 @@ from dataclasses import dataclass, field, asdict
 from datetime import datetime
 from typing import Optional, Dict, Any, List
 
+from .parsers import parse_openai_response, populate_assistant_message_tokens
+
 
 @dataclass
 class Message:
@@ -80,6 +82,7 @@ class TraceRecord:
     stream: Optional[bool] = None
     stop_sequences: Optional[List[str]] = None
     logit_bias: Optional[Dict[str, float]] = None
+    seed: Optional[int] = None
     
     # Content Data
     system_prompt: Optional[str] = None
@@ -179,6 +182,60 @@ class TraceRecord:
         self.error_category = error_category
         self.trace_status = "error"
         self.trace_completed_at = datetime.now()
+        self.update_completeness()
+    
+    def from_successful_response(self, captured_content: bytes, headers: dict, status_code: int) -> None:
+        """Update trace record from successful response data.
+        
+        Args:
+            captured_content: The captured response content (bytes)
+            headers: Response headers
+            status_code: HTTP status code
+        """
+        # Create a mock response with captured content for parsing
+        mock_response = type('MockResponse', (), {
+            'content': captured_content,
+            'headers': headers,
+            'status_code': status_code
+        })()
+        
+        # Parse the captured response
+        response_data = parse_openai_response(mock_response, self.stream)
+        
+        # Update trace with response data
+        self.prompt_tokens = response_data.get('prompt_tokens', 0)
+        self.completion_tokens = response_data.get('completion_tokens', 0)
+        self.total_tokens = response_data.get('total_tokens', 0)
+        self.finish_reason = response_data.get('finish_reason')
+        self.assistant_response = response_data.get('content')
+        
+        # Detailed token breakdowns
+        self.prompt_cached_tokens = response_data.get('prompt_cached_tokens')
+        self.prompt_audio_tokens = response_data.get('prompt_audio_tokens')
+        self.completion_reasoning_tokens = response_data.get('completion_reasoning_tokens')
+        self.completion_audio_tokens = response_data.get('completion_audio_tokens')
+        self.completion_accepted_prediction_tokens = response_data.get('completion_accepted_prediction_tokens')
+        self.completion_rejected_prediction_tokens = response_data.get('completion_rejected_prediction_tokens')
+        
+        # Rate limit info
+        if response_data.get('rate_limit_requests_remaining'):
+            self.rate_limit_remaining = response_data.get('rate_limit_requests_remaining')
+        
+        # Add assistant message to conversation if present
+        if response_data.get('assistant_content'):
+            assistant_message = Message(
+                role="assistant",
+                content=response_data['assistant_content']
+            )
+            self.full_conversation.append(assistant_message)
+        
+        # Populate token counts for messages
+        self.full_conversation = populate_assistant_message_tokens(
+            self.full_conversation,
+            self.completion_tokens
+        )
+        
+        # Calculate data completeness
         self.update_completeness()
     
     def to_dict(self) -> Dict[str, Any]:
