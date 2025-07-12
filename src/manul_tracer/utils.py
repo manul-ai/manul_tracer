@@ -6,12 +6,11 @@ OpenAI API structures and calculating metrics.
 """
 
 import json
-import time
 from datetime import datetime
 from typing import Dict, Any, Optional, List, Tuple
 from urllib.parse import urlparse
 
-from .models import TraceRecord, Message
+from .models import Message
 
 
 def parse_openai_request(request) -> Dict[str, Any]:

@@ -3,7 +3,6 @@ import json
 import logging
 import time
 from datetime import datetime
-from typing import Any
 
 from .models import TraceRecord
 from .utils import (
@@ -299,15 +298,3 @@ class TracedClient(httpx.Client):
         
         # Keep reference to our transport for stats
         self._traced_transport = traced_transport
-    
-    def get_stats(self) -> dict[str, Any]:
-        """Get tracing statistics for display in Streamlit"""
-        stats = self._traced_transport.stats.copy()
-        
-        # Calculate average duration
-        if stats['total_calls'] > 0:
-            stats['average_duration'] = stats['total_duration'] / stats['total_calls']
-        else:
-            stats['average_duration'] = 0.0
-            
-        return stats

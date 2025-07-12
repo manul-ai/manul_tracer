@@ -44,13 +44,6 @@ def main():
         st.write(f"Session ID: {st.session_state.session_id}")
         st.write(f"Messages: {len(st.session_state.messages)}")
         
-        st.header("API Tracing Stats")
-        stats = traced_client.get_stats()
-        st.write(f"Total Calls: {stats['total_calls']}")
-        st.write(f"Successful Calls: {stats['successful_calls']}")
-        st.write(f"Total Tokens: {stats['total_tokens']}")
-        st.write(f"Avg Duration: {stats['average_duration']:.2f}s")
-        
         if st.button("Clear Session"):
             st.session_state.messages = []
             st.session_state.session_id = datetime.now().strftime("%Y%m%d_%H%M%S")
