@@ -2,8 +2,9 @@
 Manul Tracer - OpenAI API call tracer for monitoring and debugging
 """
 
-from .tracer import TracedClient
+from .tracer import ManulTracer
 from .models import TraceRecord, Message, Session
+from .database.repositories import TraceRepository
 
 __version__ = "0.1.0"
-__all__ = ["TracedClient", "TraceRecord", "Message", "Session"]
+__all__ = ["ManulTracer", "TraceRecord", "Message", "Session", "TraceRepository"]

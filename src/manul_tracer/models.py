@@ -1,8 +1,9 @@
 """
-Data models for comprehensive LLM tracing.
+Data models for comprehensive LLM tracing with database storage.
 
 This module contains the core data structures for capturing detailed
-information about LLM API calls, conversations, and performance metrics.
+information about LLM API calls, conversations, and performance metrics,
+optimized for persistence in a database using the repository pattern.
 """
 
 import json

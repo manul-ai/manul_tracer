@@ -4,12 +4,13 @@ import os
 
 from datetime import datetime
 from dotenv import load_dotenv
-from manul_tracer import TracedClient
+from manul_tracer import ManulTracer
 
 load_dotenv()
 
-# Global traced client for statistics tracking
-traced_client = TracedClient(proxies=os.getenv("HTTPS_PROXY") or os.getenv("HTTP_PROXY"))
+# Configure proxy if available
+proxy_url = os.getenv("HTTPS_PROXY") or os.getenv("HTTP_PROXY")
+tracer = ManulTracer(proxy=proxy_url) if proxy_url else ManulTracer()
 
 def initialize_session_state():
     if "messages" not in st.session_state:
@@ -18,7 +19,7 @@ def initialize_session_state():
         st.session_state.session_id = datetime.now().strftime("%Y%m%d_%H%M%S")
 
 def get_openai_response(messages: list[dict[str, str]], api_key: str) -> str:
-    client = openai.OpenAI(api_key=api_key, http_client=traced_client)
+    client = openai.OpenAI(api_key=api_key, http_client=tracer.http_client)
     response = client.chat.completions.create(
         model="gpt-3.5-turbo",
         messages=messages,
