@@ -7,7 +7,6 @@ from datetime import datetime
 from dotenv import load_dotenv
 from manul_tracer import ManulTracer
 
-# Set up logging
 logging.basicConfig(level=logging.INFO)
 app_logger = logging.getLogger('streamlit_demo')
 
@@ -23,13 +22,8 @@ def initialize_session_state():
         app_logger.info(f"Created new Streamlit session ID: {st.session_state.session_id}")
         
     if "tracer" not in st.session_state:
-        # Configure proxy if available
-        proxy_url = os.getenv("HTTPS_PROXY") or os.getenv("HTTP_PROXY")
         kwargs = {"session_id": st.session_state.session_id}
-        if proxy_url:
-            kwargs["proxy"] = proxy_url
-            app_logger.info(f"Using proxy: {proxy_url}")
-            
+
         app_logger.info(f"Creating ManulTracer with session_id: {st.session_state.session_id}")
         st.session_state.tracer = ManulTracer(**kwargs)
         app_logger.info("ManulTracer created and stored in session state")
@@ -84,6 +78,10 @@ def main():
             if "tracer" in st.session_state:
                 app_logger.info(f"Removing old tracer for session {old_session_id}")
                 del st.session_state.tracer
+            st.rerun()
+        
+        if st.button("Refresh Stats"):
+            app_logger.info(f"Refreshing stats for session {st.session_state.session_id}")
             st.rerun()
     
     if not api_key:

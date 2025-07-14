@@ -28,12 +28,37 @@ class Message:
     # Token count - only populated for assistant messages (from completion_tokens)
     token_count: Optional[int] = None
 
-    def to_dict(self) -> Dict[str, Any]:
-        """Convert to dictionary with proper datetime serialization."""
+    def to_dict(self, skip_none: bool = False) -> Dict[str, Any]:
+        """Convert to dictionary with proper datetime serialization.
+        
+        Args:
+            skip_none: If True, exclude key-value pairs where value is None
+        """
         data = asdict(self)
         if data['message_timestamp'] and isinstance(data['message_timestamp'], datetime):
             data['message_timestamp'] = data['message_timestamp'].isoformat()
+        
+        # Skip None values if requested
+        if skip_none:
+            data = {k: v for k, v in data.items() if v is not None}
+        
         return data
+    
+    @classmethod
+    def from_dict(cls, data: Dict[str, Any]) -> 'Message':
+        """Create Message from dictionary.
+        
+        Args:
+            data: Dictionary containing message data
+            
+        Returns:
+            Message instance with proper datetime deserialization
+        """
+        # Convert timestamp string back to datetime if present
+        if data.get('message_timestamp'):
+            data['message_timestamp'] = datetime.fromisoformat(data['message_timestamp'])
+        
+        return cls(**data)
 
 
 @dataclass
@@ -183,16 +208,9 @@ class TraceRecord:
         self.trace_status = "error"
         self.trace_completed_at = datetime.now()
         self.update_completeness()
-    
+
     def from_successful_response(self, captured_content: bytes, headers: dict, status_code: int) -> None:
-        """Update trace record from successful response data.
-        
-        Args:
-            captured_content: The captured response content (bytes)
-            headers: Response headers
-            status_code: HTTP status code
-        """
-        # Create a mock response with captured content for parsing
+
         mock_response = type('MockResponse', (), {
             'content': captured_content,
             'headers': headers,
@@ -238,8 +256,12 @@ class TraceRecord:
         # Calculate data completeness
         self.update_completeness()
     
-    def to_dict(self) -> Dict[str, Any]:
-        """Convert to dictionary with proper serialization."""
+    def to_dict(self, skip_none: bool = False) -> Dict[str, Any]:
+        """Convert to dictionary with proper serialization.
+        
+        Args:
+            skip_none: If True, exclude key-value pairs where value is None
+        """
         data = asdict(self)
         
         # Handle datetime serialization
@@ -252,20 +274,13 @@ class TraceRecord:
             if data[field_name] and isinstance(data[field_name], datetime):
                 data[field_name] = data[field_name].isoformat()
         
-        # Handle nested Message objects - they're already dicts from asdict(), 
-        # but need datetime conversion
+        # Convert Message objects to dicts with proper datetime handling
         if data['full_conversation']:
-            converted_messages = []
-            for msg in data['full_conversation']:
-                if isinstance(msg, dict):
-                    # Handle datetime in message dict
-                    if msg.get('message_timestamp') and isinstance(msg['message_timestamp'], datetime):
-                        msg['message_timestamp'] = msg['message_timestamp'].isoformat()
-                    converted_messages.append(msg)
-                else:
-                    # Fallback: if it's still a Message object, convert it
-                    converted_messages.append(msg.to_dict() if hasattr(msg, 'to_dict') else msg)
-            data['full_conversation'] = converted_messages
+            # full_conversation contains Message objects, convert each to dict
+            data['full_conversation'] = [msg.to_dict(skip_none=skip_none) for msg in self.full_conversation]
+        
+        if skip_none:
+            data = {k: v for k, v in data.items() if v is not None}
         
         return data
     
@@ -286,16 +301,14 @@ class TraceRecord:
             if data.get(field_name):
                 data[field_name] = datetime.fromisoformat(data[field_name])
         
-        # Handle nested Message objects
+        # Convert message dicts back to Message objects
         if data.get('full_conversation'):
             messages = []
             for msg_data in data['full_conversation']:
-                if isinstance(msg_data, dict):
-                    if msg_data.get('message_timestamp'):
-                        msg_data['message_timestamp'] = datetime.fromisoformat(msg_data['message_timestamp'])
-                    messages.append(Message(**msg_data))
-                else:
-                    messages.append(msg_data)
+                # Convert timestamp string back to datetime
+                if msg_data.get('message_timestamp'):
+                    msg_data['message_timestamp'] = datetime.fromisoformat(msg_data['message_timestamp'])
+                messages.append(Message(**msg_data))
             data['full_conversation'] = messages
         
         return cls(**data)

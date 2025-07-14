@@ -117,11 +117,13 @@ class ManulTracer:
             Dictionary with session information including ID, timestamps, and stats
         """
         stats = self.get_stats()
+        session_dict = self.session.to_dict()
+        
         return {
             "session_id": self.session_id,
-            "session_type": self.session.session_type,
-            "session_created_at": self.session.session_created_at.isoformat() if self.session.session_created_at else None,
-            "last_activity": self.session.last_activity.isoformat() if self.session.last_activity else None,
+            "session_type": session_dict["session_type"],
+            "session_created_at": session_dict["session_created_at"],
+            "last_activity": session_dict["last_activity"],
             "total_requests": stats["total_requests"],
             "total_tokens": stats["total_tokens"],
             "successful_requests": stats["successful_requests"],
