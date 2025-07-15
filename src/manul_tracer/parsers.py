@@ -16,7 +16,6 @@ def parse_openai_request(request: httpx.Request) -> dict[str, Any]:
             body = json.loads(request._content.decode('utf-8'))
             return body
         else:
-            # Handle streaming requests
             if hasattr(request.stream, 'read'):
                 content = request.stream.read()
                 request.stream = httpx.ByteStream(content)
@@ -41,7 +40,6 @@ def parse_openai_response(response: httpx.Response, is_streaming: bool = False) 
     }
     
     try:
-        # Get response content
         if hasattr(response, 'get_captured_content'):
             content = response.get_captured_content()
         else:
@@ -50,7 +48,6 @@ def parse_openai_response(response: httpx.Response, is_streaming: bool = False) 
         if not content:
             return result
             
-        # Parse streaming response
         if is_streaming:
             text = content.decode('utf-8') if isinstance(content, bytes) else str(content)
             lines = text.strip().split('\n')
@@ -67,37 +64,30 @@ def parse_openai_response(response: httpx.Response, is_streaming: bool = False) 
                     try:
                         chunk_data = json.loads(data_str)
                         
-                        # Extract content from choices
                         if 'choices' in chunk_data and chunk_data['choices']:
                             choice = chunk_data['choices'][0]
                             
-                            # Get finish reason
                             if 'finish_reason' in choice and choice['finish_reason']:
                                 result['finish_reason'] = choice['finish_reason']
                             
-                            # Get content from delta
                             if 'delta' in choice and 'content' in choice['delta']:
                                 chunks.append(choice['delta']['content'])
                         
-                        # Extract usage data (usually in the last chunk)
                         if 'usage' in chunk_data:
                             usage_data = chunk_data['usage']
                             
                     except json.JSONDecodeError:
                         continue
             
-            # Combine chunks
             if chunks:
                 result['assistant_content'] = ''.join(chunks)
                 result['content'] = result['assistant_content']
             
-            # Apply usage data
             if usage_data:
                 result['prompt_tokens'] = usage_data.get('prompt_tokens', 0)
                 result['completion_tokens'] = usage_data.get('completion_tokens', 0)
                 result['total_tokens'] = usage_data.get('total_tokens', 0)
                 
-                # Detailed token breakdowns
                 if 'prompt_tokens_details' in usage_data:
                     details = usage_data['prompt_tokens_details']
                     result['prompt_cached_tokens'] = details.get('cached_tokens')
@@ -111,17 +101,14 @@ def parse_openai_response(response: httpx.Response, is_streaming: bool = False) 
                     result['completion_rejected_prediction_tokens'] = details.get('rejected_prediction_tokens')
                     
         else:
-            # Non-streaming response
             response_json = json.loads(content) if isinstance(content, bytes) else content
             
-            # Extract usage data
             if 'usage' in response_json:
                 usage = response_json['usage']
                 result['prompt_tokens'] = usage.get('prompt_tokens', 0)
                 result['completion_tokens'] = usage.get('completion_tokens', 0)
                 result['total_tokens'] = usage.get('total_tokens', 0)
                 
-                # Detailed token breakdowns
                 if 'prompt_tokens_details' in usage:
                     details = usage['prompt_tokens_details']
                     result['prompt_cached_tokens'] = details.get('cached_tokens')
@@ -134,7 +121,6 @@ def parse_openai_response(response: httpx.Response, is_streaming: bool = False) 
                     result['completion_accepted_prediction_tokens'] = details.get('accepted_prediction_tokens')
                     result['completion_rejected_prediction_tokens'] = details.get('rejected_prediction_tokens')
             
-            # Extract content
             if 'choices' in response_json and response_json['choices']:
                 choice = response_json['choices'][0]
                 result['finish_reason'] = choice.get('finish_reason')
@@ -146,7 +132,6 @@ def parse_openai_response(response: httpx.Response, is_streaming: bool = False) 
                     result['assistant_content'] = choice['text']
                     result['content'] = result['assistant_content']
         
-        # Extract rate limit info from headers
         headers = dict(response.headers)
         if 'x-ratelimit-limit-requests' in headers:
             result['rate_limit_requests_limit'] = int(headers['x-ratelimit-limit-requests'])

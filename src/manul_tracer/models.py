@@ -10,7 +10,7 @@ import json
 import uuid
 from dataclasses import dataclass, field, asdict
 from datetime import datetime
-from typing import Optional, Dict, Any, List
+from typing import Any
 
 from .parsers import parse_openai_response, populate_assistant_message_tokens
 
@@ -19,16 +19,15 @@ from .parsers import parse_openai_response, populate_assistant_message_tokens
 class Message:
     """Individual message within a conversation trace."""
     message_id: str = field(default_factory=lambda: str(uuid.uuid4()))
-    trace_id: Optional[str] = None
-    role: Optional[str] = None  # system, user, assistant, tool
-    content: Optional[str] = None
-    message_order: Optional[int] = None
-    message_timestamp: Optional[datetime] = None
+    trace_id: str | None = None
+    role: str | None = None
+    content: str | None = None
+    message_order: int | None = None
+    message_timestamp: datetime | None = None
     
-    # Token count - only populated for assistant messages (from completion_tokens)
-    token_count: Optional[int] = None
+    token_count: int | None = None
 
-    def to_dict(self, skip_none: bool = False) -> Dict[str, Any]:
+    def to_dict(self, skip_none: bool = False) -> dict[str, Any]:
         """Convert to dictionary with proper datetime serialization.
         
         Args:
@@ -45,7 +44,7 @@ class Message:
         return data
     
     @classmethod
-    def from_dict(cls, data: Dict[str, Any]) -> 'Message':
+    def from_dict(cls, data: dict[str, Any]) -> 'Message':
         """Create Message from dictionary.
         
         Args:
@@ -65,15 +64,15 @@ class Message:
 class Session:
     """Session tracking for grouping related traces."""
     session_id: str = field(default_factory=lambda: str(uuid.uuid4()))
-    user_id: Optional[str] = None
-    session_name: Optional[str] = None
-    session_type: Optional[str] = None  # chat, completion, etc.
-    created_at: Optional[datetime] = None
-    started_at: Optional[datetime] = None
-    ended_at: Optional[datetime] = None
-    last_activity_at: Optional[datetime] = None
+    user_id: str | None = None
+    session_name: str | None = None
+    session_type: str | None = None
+    created_at: datetime | None = None
+    started_at: datetime | None = None
+    ended_at: datetime | None = None
+    last_activity_at: datetime | None = None
 
-    def to_dict(self, skip_none: bool = False) -> Dict[str, Any]:
+    def to_dict(self, skip_none: bool = False) -> dict[str, Any]:
         """Convert to dictionary with proper datetime serialization.
         
         Args:
@@ -91,7 +90,7 @@ class Session:
         return data
     
     @classmethod
-    def from_dict(cls, data: Dict[str, Any]) -> 'Session':
+    def from_dict(cls, data: dict[str, Any]) -> 'Session':
         """Create Session from dictionary.
         
         Args:
@@ -113,86 +112,72 @@ class Session:
 class TraceRecord:
     """Comprehensive trace record for LLM API calls."""
     
-    # Core Identifiers
     trace_id: str = field(default_factory=lambda: str(uuid.uuid4()))
-    session_id: Optional[str] = None
-    user_id: Optional[str] = None
+    session_id: str | None = None
+    user_id: str | None = None
     
-    # Request Metadata
-    model: Optional[str] = None
+    model: str | None = None
     provider: str = "openai"
-    endpoint: Optional[str] = None
-    api_version: Optional[str] = None
-    request_timestamp: Optional[datetime] = None
-    response_timestamp: Optional[datetime] = None
+    endpoint: str | None = None
+    api_version: str | None = None
+    request_timestamp: datetime | None = None
+    response_timestamp: datetime | None = None
     
-    # API Parameters
-    temperature: Optional[float] = None
-    max_tokens: Optional[int] = None
-    top_p: Optional[float] = None
-    frequency_penalty: Optional[float] = None
-    presence_penalty: Optional[float] = None
-    stream: Optional[bool] = None
-    stop_sequences: Optional[List[str]] = None
-    logit_bias: Optional[Dict[str, float]] = None
-    seed: Optional[int] = None
+    temperature: float | None = None
+    max_tokens: int | None = None
+    top_p: float | None = None
+    frequency_penalty: float | None = None
+    presence_penalty: float | None = None
+    stream: bool | None = None
+    stop_sequences: list[str] | None = None
+    logit_bias: dict[str, float] | None = None
+    seed: int | None = None
     
-    # Content Data
-    system_prompt: Optional[str] = None
-    user_prompt: Optional[str] = None
-    assistant_response: Optional[str] = None
-    full_conversation: Optional[List[Message]] = field(default_factory=list)
+    system_prompt: str | None = None
+    user_prompt: str | None = None
+    assistant_response: str | None = None
+    full_conversation: list[Message] | None = field(default_factory=list)
     
-    # Response Metadata
-    finish_reason: Optional[str] = None
-    choice_index: Optional[int] = None
-    response_id: Optional[str] = None
+    finish_reason: str | None = None
+    choice_index: int | None = None
+    response_id: str | None = None
     
-    # Usage - Aggregate Counts
-    prompt_tokens: Optional[int] = None
-    completion_tokens: Optional[int] = None
-    total_tokens: Optional[int] = None
+    prompt_tokens: int | None = None
+    completion_tokens: int | None = None
+    total_tokens: int | None = None
     
-    # Detailed Prompt Token Breakdown
-    prompt_cached_tokens: Optional[int] = None
-    prompt_audio_tokens: Optional[int] = None
+    prompt_cached_tokens: int | None = None
+    prompt_audio_tokens: int | None = None
     
-    # Detailed Completion Token Breakdown
-    completion_reasoning_tokens: Optional[int] = None
-    completion_audio_tokens: Optional[int] = None
-    completion_accepted_prediction_tokens: Optional[int] = None
-    completion_rejected_prediction_tokens: Optional[int] = None
+    completion_reasoning_tokens: int | None = None
+    completion_audio_tokens: int | None = None
+    completion_accepted_prediction_tokens: int | None = None
+    completion_rejected_prediction_tokens: int | None = None
     
-    # Performance Metrics
-    total_latency_ms: Optional[float] = None
-    tokens_per_second: Optional[float] = None
-    processing_time_ms: Optional[float] = None
+    total_latency_ms: float | None = None
+    tokens_per_second: float | None = None
+    processing_time_ms: float | None = None
     
-    # Error Handling
     success: bool = True
-    error_code: Optional[str] = None
-    error_message: Optional[str] = None
+    error_code: str | None = None
+    error_message: str | None = None
     retry_count: int = 0
-    error_category: Optional[str] = None
+    error_category: str | None = None
     
-    # Rate Limiting & Quotas
-    rate_limit_remaining: Optional[int] = None
-    rate_limit_reset: Optional[datetime] = None
-    quota_consumed: Optional[float] = None
+    rate_limit_remaining: int | None = None
+    rate_limit_reset: datetime | None = None
+    quota_consumed: float | None = None
     
-    # Data Completeness Tracking
-    data_completeness_score: Optional[float] = None
-    missing_fields: Optional[List[str]] = field(default_factory=list)
-    trace_status: str = "pending"  # complete, partial, error, timeout
+    data_completeness_score: float | None = None
+    missing_fields: list[str] | None = field(default_factory=list)
+    trace_status: str = "pending"
     
-    # Technical Details
-    request_size_bytes: Optional[int] = None
-    response_size_bytes: Optional[int] = None
+    request_size_bytes: int | None = None
+    response_size_bytes: int | None = None
     
-    # Timestamps for Lifecycle
-    trace_created_at: Optional[datetime] = field(default_factory=datetime.now)
-    trace_updated_at: Optional[datetime] = None
-    trace_completed_at: Optional[datetime] = None
+    trace_created_at: datetime | None = field(default_factory=datetime.now)
+    trace_updated_at: datetime | None = None
+    trace_completed_at: datetime | None = None
     
     def calculate_completeness_score(self) -> float:
         """Calculate what percentage of fields are populated."""
@@ -206,7 +191,7 @@ class TraceRecord:
                 
         return populated_fields / len(all_fields) if all_fields else 0.0
     
-    def get_missing_fields(self) -> List[str]:
+    def get_missing_fields(self) -> list[str]:
         """Get list of fields that are None or empty."""
         missing = []
         for field_name in self.__dataclass_fields__.keys():
@@ -227,7 +212,7 @@ class TraceRecord:
         self.trace_completed_at = datetime.now()
         self.update_completeness()
     
-    def mark_error(self, error_code: str, error_message: str, error_category: str = None):
+    def mark_error(self, error_code: str, error_message: str, error_category: str | None = None):
         """Mark trace as failed with error details."""
         self.success = False
         self.error_code = error_code
@@ -263,11 +248,9 @@ class TraceRecord:
         self.completion_accepted_prediction_tokens = response_data.get('completion_accepted_prediction_tokens')
         self.completion_rejected_prediction_tokens = response_data.get('completion_rejected_prediction_tokens')
         
-        # Rate limit info
         if response_data.get('rate_limit_requests_remaining'):
             self.rate_limit_remaining = response_data.get('rate_limit_requests_remaining')
         
-        # Add assistant message to conversation if present
         if response_data.get('assistant_content'):
             assistant_message = Message(
                 role="assistant",
@@ -275,7 +258,6 @@ class TraceRecord:
             )
             self.full_conversation.append(assistant_message)
         
-        # Populate token counts for messages
         self.full_conversation = populate_assistant_message_tokens(
             self.full_conversation,
             self.completion_tokens
@@ -284,7 +266,7 @@ class TraceRecord:
         # Calculate data completeness
         self.update_completeness()
     
-    def to_dict(self, skip_none: bool = False) -> Dict[str, Any]:
+    def to_dict(self, skip_none: bool = False) -> dict[str, Any]:
         """Convert to dictionary with proper serialization.
         
         Args:
@@ -304,7 +286,6 @@ class TraceRecord:
         
         # Convert Message objects to dicts with proper datetime handling
         if data['full_conversation']:
-            # full_conversation contains Message objects, convert each to dict
             data['full_conversation'] = [msg.to_dict(skip_none=skip_none) for msg in self.full_conversation]
         
         if skip_none:
@@ -317,9 +298,8 @@ class TraceRecord:
         return json.dumps(self.to_dict(), indent=2)
     
     @classmethod
-    def from_dict(cls, data: Dict[str, Any]) -> 'TraceRecord':
+    def from_dict(cls, data: dict[str, Any]) -> 'TraceRecord':
         """Create TraceRecord from dictionary."""
-        # Handle datetime deserialization - only convert if it's a string
         datetime_fields = [
             'request_timestamp', 'response_timestamp', 'rate_limit_reset',
             'trace_created_at', 'trace_updated_at', 'trace_completed_at'

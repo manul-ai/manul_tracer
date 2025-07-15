@@ -1,21 +1,19 @@
 """Main ManulTracer class for OpenAI API call tracing."""
 
-from typing import Optional, Dict, Any
 import httpx
 import uuid
 import logging
 from datetime import datetime
+from typing import Any
 
 from .transport import TracedTransport
 from .database.repositories import TraceRepository
 from .database.repositories.session_repository import SessionRepository
 from .models import Session
 
-# Set up session logger
 session_logger = logging.getLogger('manul_tracer.session')
 session_logger.setLevel(logging.INFO)
 
-# Add console handler to session logger
 import sys
 session_console_handler = logging.StreamHandler(sys.stdout)
 session_console_handler.setLevel(logging.INFO)
@@ -34,8 +32,8 @@ class ManulTracer:
     
     def __init__(
         self,
-        session_id: Optional[str] = None,
-        database_file: Optional[str] = None,
+        session_id: str | None = None,
+        database_file: str | None = None,
         auto_save: bool = True,
         **httpx_kwargs
     ):
@@ -49,7 +47,6 @@ class ManulTracer:
         """
         self.auto_save = auto_save
         
-        # Initialize repositories if auto_save is enabled
         if auto_save:
             try:
                 self.repository = TraceRepository(database_file)
@@ -63,7 +60,6 @@ class ManulTracer:
             self.repository = None
             self.session_repository = None
         
-        # Generate session_id if not provided
         if session_id is None:
             session_id = str(uuid.uuid4())
             session_logger.info(f"Generated new session ID: {session_id}")
@@ -72,20 +68,16 @@ class ManulTracer:
         
         self.session_id = session_id
         
-        # Message ID mapping for session-aware message identity
-        # Format: {f"{role}_{position}": message_id}
-        self.message_id_mapping: Dict[str, str] = {}
+        self.message_id_mapping: dict[str, str] = {}
         
-        # Create session object
         self.session = Session(
             session_id=session_id,
             session_type="tracer",
-            created_at=None  # Will be set when first request is made
+            created_at=None
         )
         
         session_logger.info(f"Created ManulTracer session: {session_id} (type: tracer)")
         
-        # Separate transport-specific kwargs from client-specific kwargs
         transport_params = [
             'verify', 'cert', 'http1', 'http2', 'limits', 'proxy', 
             'uds', 'local_address', 'retries', 'socket_options', 'trust_env'
@@ -123,7 +115,7 @@ class ManulTracer:
         """
         return self._http_client
     
-    def get_stats(self) -> Dict[str, Any]:
+    def get_stats(self) -> dict[str, Any]:
         """Get aggregated statistics from the current session.
         
         Returns:
@@ -131,7 +123,7 @@ class ManulTracer:
         """
         return self._transport.stats.copy()
     
-    def get_session_info(self) -> Dict[str, Any]:
+    def get_session_info(self) -> dict[str, Any]:
         """Get information about the current session.
         
         Returns:
@@ -164,7 +156,6 @@ class ManulTracer:
         message_key = f"{role}_{position}"
         
         if message_key not in self.message_id_mapping:
-            # Generate new ID for this message
             new_id = str(uuid.uuid4())
             self.message_id_mapping[message_key] = new_id
             session_logger.debug(f"Assigned new message ID {new_id} for {message_key}")
@@ -178,7 +169,6 @@ class ManulTracer:
             self.session.created_at = now
             session_logger.info(f"Session {self.session_id} started at {now.isoformat()}")
             
-            # Save session to database if auto_save is enabled
             if self.auto_save and self.session_repository:
                 try:
                     self.session_repository.create_or_update(self.session)
@@ -188,7 +178,6 @@ class ManulTracer:
         
         self.session.last_activity_at = now
         
-        # Update session activity in database
         if self.auto_save and self.session_repository:
             try:
                 self.session_repository.update_activity(self.session_id)
@@ -207,14 +196,11 @@ class ManulTracer:
             return
             
         try:
-            # Save the trace using create_or_update for safety
             self.repository.create_or_update(trace)
             session_logger.debug(f"Saved trace {trace.trace_id} to database")
             
-            # Update session statistics
             if self.session_repository:
                 tokens = trace.total_tokens or 0
-                # Calculate cost if needed (placeholder for now)
                 cost = 0.0
                 self.session_repository.update_statistics(
                     self.session_id, 
@@ -224,7 +210,6 @@ class ManulTracer:
                 )
                 
         except Exception as e:
-            # Log error but don't crash tracing
             session_logger.warning(f"Failed to save trace {trace.trace_id}: {e}")
     
     def reset_stats(self):
@@ -246,7 +231,6 @@ class ManulTracer:
             duration = datetime.now() - self.session.created_at
             session_logger.info(f"Session {self.session_id} duration: {duration}")
             
-            # End the session in the database
             if self.auto_save and self.session_repository:
                 try:
                     self.session_repository.end_session(self.session_id)

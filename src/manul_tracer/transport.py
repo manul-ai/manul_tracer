@@ -6,15 +6,13 @@ import httpx
 import json
 import hashlib
 import uuid
-from typing import Dict, Any
+from typing import Any
 
 from .models import TraceRecord, Message
 
-# Set up logger for the transport
 logger = logging.getLogger('manul_tracer.transport')
 logger.setLevel(logging.INFO)
 
-# Add console handler to ensure logs are output to stdout
 console_handler = logging.StreamHandler(sys.stdout)
 console_handler.setLevel(logging.INFO)
 formatter = logging.Formatter('%(asctime)s - %(name)s - %(levelname)s - %(message)s')
@@ -131,7 +129,7 @@ class TracedTransport(httpx.BaseTransport):
         
         # Message deduplication cache
         # Format: {message_key: message_id}
-        self.message_cache: Dict[str, str] = {}
+        self.message_cache: dict[str, str] = {}
 
     def _get_or_assign_message_id(self, role: str, content: str, position: int) -> str:
         """Get or assign a stable message ID using role, content, and position.
