@@ -4,6 +4,9 @@ import sys
 from datetime import datetime
 import httpx
 import json
+import hashlib
+import uuid
+from typing import Dict, Any
 
 from .models import TraceRecord, Message
 
@@ -72,9 +75,9 @@ class LogResponse(httpx.Response):
                 self.traced_transport.stats['total_completion_tokens'] += self.trace_record.completion_tokens
                 self.traced_transport.stats['total_tokens'] += self.trace_record.total_tokens
                 
-                # Save to repository if available
-                if self.traced_transport.repository:
-                    self.traced_transport.repository.create(self.trace_record)
+                # Notify ManulTracer of trace completion
+                if self.traced_transport.tracer:
+                    self.traced_transport.tracer._on_trace_completed(self.trace_record)
                 
                 # Log the complete trace object
                 logger.info("="*80)
@@ -125,6 +128,33 @@ class TracedTransport(httpx.BaseTransport):
         self.repository = repository
         self.session_id = session_id or "default"
         self.tracer = tracer
+        
+        # Message deduplication cache
+        # Format: {message_key: message_id}
+        self.message_cache: Dict[str, str] = {}
+
+    def _get_or_assign_message_id(self, role: str, content: str, position: int) -> str:
+        """Get or assign a stable message ID using role, content, and position.
+        
+        Args:
+            role: Message role (user, assistant, system, tool)
+            content: Message content 
+            position: Position in conversation (0-based)
+            
+        Returns:
+            Stable message ID
+        """
+        # Create message key using role, position, and content hash
+        content_hash = hashlib.md5(content.encode('utf-8')).hexdigest()[:8]
+        message_key = f"{role}_{position}_{content_hash}"
+        
+        if message_key not in self.message_cache:
+            # Generate new UUID for this message
+            new_id = str(uuid.uuid4())
+            self.message_cache[message_key] = new_id
+            logger.debug(f"Assigned new message ID {new_id} for key {message_key}")
+        
+        return self.message_cache[message_key]
 
     def handle_request(self, request: httpx.Request) -> httpx.Response:
         """Intercept and trace HTTP requests."""
@@ -150,9 +180,23 @@ class TracedTransport(httpx.BaseTransport):
         trace.endpoint = str(request.url)
         trace.stream = is_streaming_request(request_dict)
         
-        # Extract messages
+        # Extract messages and assign stable IDs
         messages_data = extract_conversation_messages(request_dict)
-        trace.full_conversation = [Message(**msg) for msg in messages_data]
+        messages_with_ids = []
+        
+        for position, msg_data in enumerate(messages_data):
+            # Get or assign stable message ID
+            message_id = self._get_or_assign_message_id(
+                role=msg_data['role'],
+                content=msg_data['content'] or '',
+                position=position
+            )
+            
+            # Add message_id to the message data
+            msg_data['message_id'] = message_id
+            messages_with_ids.append(msg_data)
+        
+        trace.full_conversation = [Message(**msg) for msg in messages_with_ids]
         
         # Extract API parameters
         trace.temperature = request_dict.get('temperature')
@@ -193,8 +237,9 @@ class TracedTransport(httpx.BaseTransport):
                 trace.total_latency_ms = metrics['latency_ms']
                 trace.update_completeness()
                 
-                if self.repository:
-                    self.repository.create(trace)
+                # Notify ManulTracer of trace completion (error case)
+                if self.tracer:
+                    self.tracer._on_trace_completed(trace)
                 
                 return original_response
             
@@ -231,8 +276,9 @@ class TracedTransport(httpx.BaseTransport):
                 trace.total_latency_ms = metrics['latency_ms']
                 trace.update_completeness()
                 
-                if self.repository:
-                    self.repository.create(trace)
+                # Notify ManulTracer of trace completion (non-OpenAI case)
+                if self.tracer:
+                    self.tracer._on_trace_completed(trace)
                 
                 return original_response
                 
@@ -248,9 +294,9 @@ class TracedTransport(httpx.BaseTransport):
             trace.total_latency_ms = metrics['latency_ms']
             trace.update_completeness()
             
-            # Save error trace to repository if available
-            if self.repository:
-                self.repository.create(trace)
+            # Notify ManulTracer of trace completion (exception case)
+            if self.tracer:
+                self.tracer._on_trace_completed(trace)
             
             # Log error trace
             logger.error("="*80)

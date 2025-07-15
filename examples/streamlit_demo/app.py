@@ -25,7 +25,7 @@ def initialize_session_state():
         kwargs = {"session_id": st.session_state.session_id}
 
         app_logger.info(f"Creating ManulTracer with session_id: {st.session_state.session_id}")
-        st.session_state.tracer = ManulTracer(**kwargs)
+        st.session_state.tracer = ManulTracer(**kwargs, database_file="databases/traces.db", auto_save=True)
         app_logger.info("ManulTracer created and stored in session state")
 
 def get_openai_response(messages: list[dict[str, str]], api_key: str) -> str:
@@ -63,8 +63,8 @@ def main():
             st.write(f"Total Tokens: {session_info['total_tokens']}")
             st.write(f"Successful: {session_info['successful_requests']}")
             st.write(f"Failed: {session_info['failed_requests']}")
-            if session_info['session_created_at']:
-                st.write(f"Session Started: {session_info['session_created_at']}")
+            if session_info['created_at']:
+                st.write(f"Session Started: {session_info['created_at']}")
         
         if st.button("Clear Session"):
             old_session_id = st.session_state.session_id

@@ -45,6 +45,6 @@ def test_session_info():
     tracer = ManulTracer()
     session_info = tracer.get_session_info()
     
-    expected_keys = ['session_id', 'session_type', 'session_created_at', 'last_activity', 'total_requests', 'total_tokens', 'successful_requests', 'failed_requests']
+    expected_keys = ['session_id', 'session_type', 'created_at', 'last_activity_at', 'total_requests', 'total_tokens', 'successful_requests', 'failed_requests']
     for key in expected_keys:
         assert key in session_info

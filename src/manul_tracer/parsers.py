@@ -181,7 +181,6 @@ def calculate_performance_metrics(
     
     if completion_tokens > 0 and duration > 0:
         metrics['tokens_per_second'] = completion_tokens / duration
-        # Estimate time to first token (rough approximation)
         if completion_tokens > 1:
             metrics['time_to_first_token_ms'] = latency_ms / completion_tokens
     

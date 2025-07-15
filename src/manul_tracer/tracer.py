@@ -8,6 +8,7 @@ from datetime import datetime
 
 from .transport import TracedTransport
 from .database.repositories import TraceRepository
+from .database.repositories.session_repository import SessionRepository
 from .models import Session
 
 # Set up session logger
@@ -33,18 +34,34 @@ class ManulTracer:
     
     def __init__(
         self,
-        repository: Optional[TraceRepository] = None,
         session_id: Optional[str] = None,
+        database_file: Optional[str] = None,
+        auto_save: bool = True,
         **httpx_kwargs
     ):
         """Initialize the ManulTracer.
         
         Args:
-            repository: Optional TraceRepository for persisting traces
             session_id: Optional session identifier. If None, generates a UUID
+            database_file: Optional database file path. If None, uses in-memory database
+            auto_save: Whether to automatically save traces to database (default True)
             **httpx_kwargs: Additional arguments passed to httpx.Client
         """
-        self.repository = repository
+        self.auto_save = auto_save
+        
+        # Initialize repositories if auto_save is enabled
+        if auto_save:
+            try:
+                self.repository = TraceRepository(database_file)
+                self.session_repository = SessionRepository(database_file)
+            except Exception as e:
+                session_logger.warning(f"Failed to initialize repository: {e}. Auto-save disabled.")
+                self.repository = None
+                self.session_repository = None
+                self.auto_save = False
+        else:
+            self.repository = None
+            self.session_repository = None
         
         # Generate session_id if not provided
         if session_id is None:
@@ -55,11 +72,15 @@ class ManulTracer:
         
         self.session_id = session_id
         
+        # Message ID mapping for session-aware message identity
+        # Format: {f"{role}_{position}": message_id}
+        self.message_id_mapping: Dict[str, str] = {}
+        
         # Create session object
         self.session = Session(
             session_id=session_id,
             session_type="tracer",
-            session_created_at=None  # Will be set when first request is made
+            created_at=None  # Will be set when first request is made
         )
         
         session_logger.info(f"Created ManulTracer session: {session_id} (type: tracer)")
@@ -83,7 +104,7 @@ class ManulTracer:
         
         self._transport = TracedTransport(
             wrapped_transport=base_transport,
-            repository=repository,
+            repository=self.repository,
             session_id=session_id,
             tracer=self
         )
@@ -122,23 +143,89 @@ class ManulTracer:
         return {
             "session_id": self.session_id,
             "session_type": session_dict["session_type"],
-            "session_created_at": session_dict["session_created_at"],
-            "last_activity": session_dict["last_activity"],
+            "created_at": session_dict["created_at"],
+            "last_activity_at": session_dict["last_activity_at"],
             "total_requests": stats["total_requests"],
             "total_tokens": stats["total_tokens"],
             "successful_requests": stats["successful_requests"],
             "failed_requests": stats["failed_requests"]
         }
     
+    def get_or_assign_message_id(self, role: str, position: int) -> str:
+        """Get or assign a stable message ID for a message based on role and position.
+        
+        Args:
+            role: Message role (user, assistant, system, tool)
+            position: Position in the conversation (0-based index)
+            
+        Returns:
+            Stable message ID for this role+position combination
+        """
+        message_key = f"{role}_{position}"
+        
+        if message_key not in self.message_id_mapping:
+            # Generate new ID for this message
+            new_id = str(uuid.uuid4())
+            self.message_id_mapping[message_key] = new_id
+            session_logger.debug(f"Assigned new message ID {new_id} for {message_key}")
+        
+        return self.message_id_mapping[message_key]
+    
     def _initialize_session_if_needed(self):
         """Initialize session timestamps if this is the first request."""
         now = datetime.now()
-        if self.session.session_created_at is None:
-            self.session.session_created_at = now
+        if self.session.created_at is None:
+            self.session.created_at = now
             session_logger.info(f"Session {self.session_id} started at {now.isoformat()}")
+            
+            # Save session to database if auto_save is enabled
+            if self.auto_save and self.session_repository:
+                try:
+                    self.session_repository.create_or_update(self.session)
+                    session_logger.debug(f"Saved session {self.session_id} to database")
+                except Exception as e:
+                    session_logger.warning(f"Failed to save session {self.session_id}: {e}")
         
-        self.session.last_activity = now
+        self.session.last_activity_at = now
+        
+        # Update session activity in database
+        if self.auto_save and self.session_repository:
+            try:
+                self.session_repository.update_activity(self.session_id)
+            except Exception as e:
+                session_logger.warning(f"Failed to update session activity: {e}")
+        
         session_logger.debug(f"Session {self.session_id} activity updated at {now.isoformat()}")
+    
+    def _on_trace_completed(self, trace):
+        """Called when TracedTransport completes a trace.
+        
+        Args:
+            trace: TraceRecord instance that has been completed
+        """
+        if not self.auto_save or not self.repository:
+            return
+            
+        try:
+            # Save the trace using create_or_update for safety
+            self.repository.create_or_update(trace)
+            session_logger.debug(f"Saved trace {trace.trace_id} to database")
+            
+            # Update session statistics
+            if self.session_repository:
+                tokens = trace.total_tokens or 0
+                # Calculate cost if needed (placeholder for now)
+                cost = 0.0
+                self.session_repository.update_statistics(
+                    self.session_id, 
+                    requests=1, 
+                    tokens=tokens, 
+                    cost=cost
+                )
+                
+        except Exception as e:
+            # Log error but don't crash tracing
+            session_logger.warning(f"Failed to save trace {trace.trace_id}: {e}")
     
     def reset_stats(self):
         """Reset the statistics counters."""
@@ -155,9 +242,18 @@ class ManulTracer:
     def close(self):
         """Close the HTTP client and clean up resources."""
         session_logger.info(f"Closing session {self.session_id}")
-        if self.session.session_created_at:
-            duration = datetime.now() - self.session.session_created_at
+        if self.session.created_at:
+            duration = datetime.now() - self.session.created_at
             session_logger.info(f"Session {self.session_id} duration: {duration}")
+            
+            # End the session in the database
+            if self.auto_save and self.session_repository:
+                try:
+                    self.session_repository.end_session(self.session_id)
+                    session_logger.debug(f"Ended session {self.session_id} in database")
+                except Exception as e:
+                    session_logger.warning(f"Failed to end session {self.session_id}: {e}")
+        
         self._http_client.close()
     
     def __enter__(self):

@@ -54,8 +54,8 @@ class Message:
         Returns:
             Message instance with proper datetime deserialization
         """
-        # Convert timestamp string back to datetime if present
-        if data.get('message_timestamp'):
+        # Convert timestamp string back to datetime if present and it's a string
+        if data.get('message_timestamp') and isinstance(data['message_timestamp'], str):
             data['message_timestamp'] = datetime.fromisoformat(data['message_timestamp'])
         
         return cls(**data)
@@ -68,17 +68,45 @@ class Session:
     user_id: Optional[str] = None
     session_name: Optional[str] = None
     session_type: Optional[str] = None  # chat, completion, etc.
-    session_created_at: Optional[datetime] = None
-    session_ended_at: Optional[datetime] = None
-    last_activity: Optional[datetime] = None
+    created_at: Optional[datetime] = None
+    started_at: Optional[datetime] = None
+    ended_at: Optional[datetime] = None
+    last_activity_at: Optional[datetime] = None
 
-    def to_dict(self) -> Dict[str, Any]:
-        """Convert to dictionary with proper datetime serialization."""
+    def to_dict(self, skip_none: bool = False) -> Dict[str, Any]:
+        """Convert to dictionary with proper datetime serialization.
+        
+        Args:
+            skip_none: If True, exclude key-value pairs where value is None
+        """
         data = asdict(self)
-        for timestamp_field in ['session_created_at', 'session_ended_at', 'last_activity']:
+        for timestamp_field in ['created_at', 'started_at', 'ended_at', 'last_activity_at']:
             if data[timestamp_field] and isinstance(data[timestamp_field], datetime):
                 data[timestamp_field] = data[timestamp_field].isoformat()
+        
+        # Skip None values if requested
+        if skip_none:
+            data = {k: v for k, v in data.items() if v is not None}
+        
         return data
+    
+    @classmethod
+    def from_dict(cls, data: Dict[str, Any]) -> 'Session':
+        """Create Session from dictionary.
+        
+        Args:
+            data: Dictionary containing session data
+            
+        Returns:
+            Session instance with proper datetime deserialization
+        """
+        # Convert timestamp strings back to datetime if present and they're strings
+        timestamp_fields = ['created_at', 'started_at', 'ended_at', 'last_activity_at']
+        for field_name in timestamp_fields:
+            if data.get(field_name) and isinstance(data[field_name], str):
+                data[field_name] = datetime.fromisoformat(data[field_name])
+        
+        return cls(**data)
 
 
 @dataclass
@@ -291,22 +319,22 @@ class TraceRecord:
     @classmethod
     def from_dict(cls, data: Dict[str, Any]) -> 'TraceRecord':
         """Create TraceRecord from dictionary."""
-        # Handle datetime deserialization
+        # Handle datetime deserialization - only convert if it's a string
         datetime_fields = [
             'request_timestamp', 'response_timestamp', 'rate_limit_reset',
             'trace_created_at', 'trace_updated_at', 'trace_completed_at'
         ]
         
         for field_name in datetime_fields:
-            if data.get(field_name):
+            if data.get(field_name) and isinstance(data[field_name], str):
                 data[field_name] = datetime.fromisoformat(data[field_name])
         
         # Convert message dicts back to Message objects
         if data.get('full_conversation'):
             messages = []
             for msg_data in data['full_conversation']:
-                # Convert timestamp string back to datetime
-                if msg_data.get('message_timestamp'):
+                # Convert timestamp string back to datetime - only if it's a string
+                if msg_data.get('message_timestamp') and isinstance(msg_data['message_timestamp'], str):
                     msg_data['message_timestamp'] = datetime.fromisoformat(msg_data['message_timestamp'])
                 messages.append(Message(**msg_data))
             data['full_conversation'] = messages
