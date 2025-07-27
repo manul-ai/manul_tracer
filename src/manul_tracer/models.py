@@ -133,9 +133,6 @@ class TraceRecord:
     logit_bias: dict[str, float] | None = None
     seed: int | None = None
     
-    system_prompt: str | None = None
-    user_prompt: str | None = None
-    assistant_response: str | None = None
     full_conversation: list[Message] | None = field(default_factory=list)
     
     finish_reason: str | None = None
@@ -238,7 +235,6 @@ class TraceRecord:
         self.completion_tokens = response_data.get('completion_tokens', 0)
         self.total_tokens = response_data.get('total_tokens', 0)
         self.finish_reason = response_data.get('finish_reason')
-        self.assistant_response = response_data.get('content')
         
         # Detailed token breakdowns
         self.prompt_cached_tokens = response_data.get('prompt_cached_tokens')

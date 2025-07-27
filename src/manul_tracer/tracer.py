@@ -49,8 +49,8 @@ class ManulTracer:
         
         if auto_save:
             try:
-                self.repository = TraceRepository(database_file)
                 self.session_repository = SessionRepository(database_file)
+                self.repository = TraceRepository(database_file)
             except Exception as e:
                 session_logger.warning(f"Failed to initialize repository: {e}. Auto-save disabled.")
                 self.repository = None
@@ -192,16 +192,27 @@ class ManulTracer:
         Args:
             trace: TraceRecord instance that has been completed
         """
-        if not self.auto_save or not self.repository:
+        session_logger.info(f"_on_trace_completed called for trace {trace.trace_id}")
+        session_logger.info(f"  auto_save={self.auto_save}, repository={self.repository is not None}")
+        
+        if not self.auto_save:
+            session_logger.info("  Skipping save: auto_save is False")
+            return
+            
+        if not self.repository:
+            session_logger.warning("  Skipping save: repository is None")
             return
             
         try:
+            session_logger.info(f"  Attempting to save trace {trace.trace_id} to database")
+            session_logger.debug(f"  Trace details: model={trace.model}, session_id={trace.session_id}, success={trace.success}")
             self.repository.create_or_update(trace)
-            session_logger.debug(f"Saved trace {trace.trace_id} to database")
+            session_logger.info(f"  Successfully saved trace {trace.trace_id} to database")
             
             if self.session_repository:
                 tokens = trace.total_tokens or 0
                 cost = 0.0
+                session_logger.debug(f"  Updating session statistics: requests=1, tokens={tokens}")
                 self.session_repository.update_statistics(
                     self.session_id, 
                     requests=1, 
@@ -210,7 +221,9 @@ class ManulTracer:
                 )
                 
         except Exception as e:
-            session_logger.warning(f"Failed to save trace {trace.trace_id}: {e}")
+            session_logger.error(f"  ERROR: Failed to save trace {trace.trace_id}: {e}")
+            import traceback
+            session_logger.error(f"  Traceback: {traceback.format_exc()}")
     
     def reset_stats(self):
         """Reset the statistics counters."""

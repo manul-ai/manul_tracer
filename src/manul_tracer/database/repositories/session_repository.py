@@ -87,7 +87,13 @@ class SessionRepository(BaseRepository):
         df = self.connection.execute(sql_select_session, (session_id,)).fetchdf()
         if not df.empty:
             session_dict = df.to_dict('records')[0]
-            return Session.from_dict(session_dict)
+            # Keep only fields that exist in Session model
+            valid_fields = {
+                'session_id', 'user_id', 'session_name', 'session_type',
+                'created_at', 'started_at', 'ended_at', 'last_activity_at'
+            }
+            filtered_dict = {k: v for k, v in session_dict.items() if k in valid_fields}
+            return Session.from_dict(filtered_dict)
         return None
 
     def update(self, session_id: str, session: Session) -> Session:
@@ -144,7 +150,13 @@ class SessionRepository(BaseRepository):
         
         if not df.empty:
             for session_dict in df.to_dict('records'):
-                sessions.append(Session.from_dict(session_dict))
+                # Keep only fields that exist in Session model
+                valid_fields = {
+                    'session_id', 'user_id', 'session_name', 'session_type',
+                    'created_at', 'started_at', 'ended_at', 'last_activity_at'
+                }
+                filtered_dict = {k: v for k, v in session_dict.items() if k in valid_fields}
+                sessions.append(Session.from_dict(filtered_dict))
 
         return sessions
 
