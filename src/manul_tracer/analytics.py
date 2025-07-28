@@ -30,7 +30,7 @@ class AnalyticsService:
             'recent_traces': [
                 {
                     'trace_id': t.trace_id,
-                    'model': t.model,
+                    'model_id': t.model_id,
                     'total_tokens': t.total_tokens or 0,
                     'latency_ms': t.total_latency_ms or 0,
                     'success': t.success,
@@ -110,7 +110,7 @@ class AnalyticsService:
         if session_id:
             filters['session_id'] = session_id
         if model:
-            filters['model'] = model
+            filters['model_id'] = model
         if success is not None:
             filters['success'] = success
         
@@ -126,7 +126,7 @@ class AnalyticsService:
             {
                 'trace_id': t.trace_id,
                 'session_id': t.session_id,
-                'model': t.model,
+                'model_id': t.model_id,
                 'total_tokens': t.total_tokens or 0,
                 'latency_ms': t.total_latency_ms or 0,
                 'success': t.success,
@@ -150,7 +150,7 @@ class AnalyticsService:
             error_categories[category].append({
                 'trace_id': trace.trace_id,
                 'error_message': trace.error_message,
-                'model': trace.model,
+                'model_id': trace.model_id,
                 'timestamp': trace.request_timestamp.isoformat() if trace.request_timestamp else None
             })
         

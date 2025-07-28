@@ -4,7 +4,7 @@ import logging
 from typing import Any
 
 from .base import BaseRepository
-from ...models import TraceRecord, Message, Session
+from ...models import TraceRecord, Message, Session, Image
 
 logger = logging.getLogger('manul_tracer.repository')
 logger.setLevel(logging.DEBUG)
@@ -26,12 +26,13 @@ class TraceRepository(BaseRepository):
             trace_id VARCHAR PRIMARY KEY,
             session_id VARCHAR,
             user_id VARCHAR,
+            model_id VARCHAR,
             
             FOREIGN KEY (session_id) REFERENCES sessions(session_id),
+            FOREIGN KEY (user_id) REFERENCES users(user_id),
+            FOREIGN KEY (model_id) REFERENCES models(model_id),
             
             -- Request Metadata
-            model VARCHAR,
-            provider VARCHAR DEFAULT 'openai',
             endpoint VARCHAR,
             api_version VARCHAR,
             request_timestamp TIMESTAMP,
@@ -101,6 +102,29 @@ class TraceRepository(BaseRepository):
         );
         """
         
+        # Users table for user management
+        sql_create_users_table = """
+        CREATE TABLE IF NOT EXISTS users (
+            user_id VARCHAR PRIMARY KEY,
+            username VARCHAR UNIQUE,
+            email VARCHAR UNIQUE,
+            created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+            last_active_at TIMESTAMP
+        );
+        """
+        
+        # Models table for model management
+        sql_create_models_table = """
+        CREATE TABLE IF NOT EXISTS models (
+            model_id VARCHAR PRIMARY KEY,
+            model_name VARCHAR NOT NULL,
+            provider VARCHAR NOT NULL DEFAULT 'openai',
+            created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+            
+            UNIQUE(model_name, provider)
+        );
+        """
+        
         # Messages table for conversation tracking (now independent of traces)
         sql_create_messages_table = """
         CREATE TABLE IF NOT EXISTS messages (
@@ -108,6 +132,7 @@ class TraceRepository(BaseRepository):
             session_id VARCHAR,
             role VARCHAR,
             content TEXT,
+            has_images BOOLEAN DEFAULT FALSE,
             message_order INTEGER,
             message_timestamp TIMESTAMP,
             token_count INTEGER,
@@ -130,32 +155,126 @@ class TraceRepository(BaseRepository):
         );
         """
         
+        # Images table for storing image metadata
+        sql_create_images_table = """
+        CREATE TABLE IF NOT EXISTS images (
+            image_id VARCHAR PRIMARY KEY,
+            image_hash VARCHAR UNIQUE,
+            size_mb DOUBLE,
+            format VARCHAR,
+            width INTEGER,
+            height INTEGER,
+            created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+        );
+        """
+        
+        # Junction table for many-to-many relationship between messages and images
+        sql_create_message_images_table = """
+        CREATE TABLE IF NOT EXISTS message_images (
+            message_id VARCHAR,
+            image_id VARCHAR,
+            image_order INTEGER,
+            
+            PRIMARY KEY (message_id, image_id),
+            FOREIGN KEY (message_id) REFERENCES messages(message_id),
+            FOREIGN KEY (image_id) REFERENCES images(image_id)
+        );
+        """
+        
         # Create indexes for better performance
         sql_create_indexes = [
             f"CREATE INDEX IF NOT EXISTS idx_traces_session_id ON {self.TABLE_NAME}(session_id);",
             f"CREATE INDEX IF NOT EXISTS idx_traces_user_id ON {self.TABLE_NAME}(user_id);",
-            f"CREATE INDEX IF NOT EXISTS idx_traces_model ON {self.TABLE_NAME}(model);",
+            f"CREATE INDEX IF NOT EXISTS idx_traces_model_id ON {self.TABLE_NAME}(model_id);",
+            "CREATE INDEX IF NOT EXISTS idx_users_username ON users(username);",
+            "CREATE INDEX IF NOT EXISTS idx_models_name_provider ON models(model_name, provider);",
             f"CREATE INDEX IF NOT EXISTS idx_traces_timestamp ON {self.TABLE_NAME}(request_timestamp);",
             f"CREATE INDEX IF NOT EXISTS idx_traces_success ON {self.TABLE_NAME}(success);",
             f"CREATE INDEX IF NOT EXISTS idx_traces_status ON {self.TABLE_NAME}(trace_status);",
             "CREATE INDEX IF NOT EXISTS idx_messages_session_id ON messages(session_id);",
             "CREATE INDEX IF NOT EXISTS idx_messages_role ON messages(role);",
             "CREATE INDEX IF NOT EXISTS idx_trace_messages_trace_id ON trace_messages(trace_id);",
-            "CREATE INDEX IF NOT EXISTS idx_trace_messages_message_id ON trace_messages(message_id);"
+            "CREATE INDEX IF NOT EXISTS idx_trace_messages_message_id ON trace_messages(message_id);",
+            "CREATE INDEX IF NOT EXISTS idx_images_hash ON images(image_hash);",
+            "CREATE INDEX IF NOT EXISTS idx_message_images_message_id ON message_images(message_id);",
+            "CREATE INDEX IF NOT EXISTS idx_message_images_image_id ON message_images(image_id);"
         ]
         
         # Execute table creation statements
+        self.connection.execute(sql_create_users_table)
+        self.connection.execute(sql_create_models_table)
         self.connection.execute(sql_create_traces_table)
         self.connection.execute(sql_create_messages_table)
         self.connection.execute(sql_create_trace_messages_table)
+        self.connection.execute(sql_create_images_table)
+        self.connection.execute(sql_create_message_images_table)
         
         # Create indexes
         for index_sql in sql_create_indexes:
             self.connection.execute(index_sql)
             
         return True
-    # TODO: models table, users table, organisations, mapping keys (router API) for different AI providers
-    # TODO: tracking images
+    def create_or_get_user(self, user_id: str, username: str | None = None, email: str | None = None) -> str:
+        """Create or get a user in the database.
+        
+        Args:
+            user_id: The user ID
+            username: Optional username
+            email: Optional email
+            
+        Returns:
+            user_id: The ID of the created/existing user
+        """
+        # Check if user already exists
+        existing_user = self.connection.execute(
+            "SELECT user_id FROM users WHERE user_id = ?",
+            (user_id,)
+        ).fetchone()
+        
+        if existing_user:
+            # Update last_active_at
+            self.connection.execute(
+                "UPDATE users SET last_active_at = CURRENT_TIMESTAMP WHERE user_id = ?",
+                (user_id,)
+            )
+            return existing_user[0]
+        
+        # Create new user
+        sql_insert_user = """
+        INSERT INTO users (user_id, username, email, last_active_at)
+        VALUES (?, ?, ?, CURRENT_TIMESTAMP)
+        """
+        self.connection.execute(sql_insert_user, (user_id, username, email))
+        return user_id
+
+    def create_or_get_model(self, model_name: str, provider: str = "openai") -> str:
+        """Create or get a model in the database.
+        
+        Args:
+            model_name: The model name (e.g., 'gpt-4', 'gpt-3.5-turbo')
+            provider: The provider (e.g., 'openai', 'anthropic')
+            
+        Returns:
+            model_id: The ID of the created/existing model
+        """
+        # Check if model already exists
+        existing_model = self.connection.execute(
+            "SELECT model_id FROM models WHERE model_name = ? AND provider = ?",
+            (model_name, provider)
+        ).fetchone()
+        
+        if existing_model:
+            return existing_model[0]
+        
+        # Create new model with UUID as model_id
+        model_id = str(uuid.uuid4())
+        sql_insert_model = """
+        INSERT INTO models (model_id, model_name, provider)
+        VALUES (?, ?, ?)
+        """
+        self.connection.execute(sql_insert_model, (model_id, model_name, provider))
+        return model_id
+
     def generate_trace_id(self) -> str:
         """Generate a unique trace ID."""
         return str(uuid.uuid4())
@@ -210,6 +329,72 @@ class TraceRepository(BaseRepository):
         """
         self.connection.execute(sql_insert_junction, (trace_id, message_id, message_order))
 
+    def _create_or_get_image(self, image: Image) -> str:
+        """Create or get an image in the database using hash-based deduplication.
+        
+        Args:
+            image: Image instance to persist
+            
+        Returns:
+            image_id: The ID of the created/existing image
+        """
+        if not image.image_hash:
+            return image.image_id
+
+        # Check if image with this hash already exists
+        existing_image = self.connection.execute(
+            "SELECT image_id FROM images WHERE image_hash = ?",
+            (image.image_hash,)
+        ).fetchone()
+        
+        if existing_image:
+            # Image with same hash exists, return the existing ID
+            return existing_image[0]
+        
+        # Create new image record
+        image_record = image.to_dict(skip_none=True)
+        
+        sql_insert_image = f"""
+        INSERT INTO images ({', '.join(image_record.keys())})
+        VALUES ({', '.join(['?' for _ in image_record])})
+        """
+        self.connection.execute(sql_insert_image, tuple(image_record.values()))
+        return image.image_id
+
+    def _link_message_to_image(self, message_id: str, image_id: str, image_order: int) -> None:
+        """Link a message to an image via the junction table.
+        
+        Args:
+            message_id: The message ID
+            image_id: The image ID
+            image_order: The order of the image in the message
+        """
+        sql_insert_junction = """
+        INSERT OR IGNORE INTO message_images (message_id, image_id, image_order)
+        VALUES (?, ?, ?)
+        """
+        self.connection.execute(sql_insert_junction, (message_id, image_id, image_order))
+
+    def _process_message_images(self, message_id: str, images: list[Image]) -> None:
+        """Process and link images to a message.
+        
+        Args:
+            message_id: The message ID to link images to
+            images: List of Image objects to process
+        """
+        if not images:
+            return
+            
+        for i, image in enumerate(images):
+            image_id = self._create_or_get_image(image)
+            self._link_message_to_image(message_id, image_id, i)
+        
+        # Update the message to set has_images = TRUE
+        self.connection.execute(
+            "UPDATE messages SET has_images = TRUE WHERE message_id = ?",
+            (message_id,)
+        )
+
     def create(self, trace: TraceRecord) -> TraceRecord:
         """Create a new trace record in the database.
         
@@ -227,10 +412,25 @@ class TraceRepository(BaseRepository):
         record = trace.to_dict(skip_none=True)
         logger.debug(f"  Record keys: {list(record.keys())}")
         
-        # Save full_conversation before removing it from record
+        # Save full_conversation and images before removing them from record
+        # These are handled via separate normalized tables
         full_conversation = record.pop('full_conversation', None)
+        images_data = record.pop('images', None)
+        
+        # Convert image dictionaries back to Image objects if needed
+        images = None
+        if images_data:
+            images = []
+            for img_data in images_data:
+                if isinstance(img_data, dict):
+                    images.append(Image.from_dict(img_data))
+                elif isinstance(img_data, Image):
+                    images.append(img_data)
+                    
         logger.debug(f"  Has full_conversation: {full_conversation is not None}")
         logger.debug(f"  Number of messages: {len(trace.full_conversation) if trace.full_conversation else 0}")
+        logger.debug(f"  Has images: {images is not None}")
+        logger.debug(f"  Number of images: {len(images) if images else 0}")
 
         sql_insert_trace = f"""
         INSERT INTO {self.TABLE_NAME} ({', '.join(record.keys())})
@@ -253,6 +453,11 @@ class TraceRepository(BaseRepository):
                 try:
                     message_id = self._create_or_get_message(trace.session_id, message)
                     self._link_trace_to_message(trace.trace_id, message_id, i)
+                    
+                    # Process images for this message if images exist in the trace
+                    if images and message.has_images:
+                        self._process_message_images(message_id, images)
+                    
                     logger.debug(f"    Linked message {i}: {message_id}")
                 except Exception as e:
                     logger.error(f"    ERROR processing message {i}: {e}")
@@ -314,8 +519,20 @@ class TraceRepository(BaseRepository):
         """
         record = trace.to_dict(skip_none=True)
         
-        # Save full_conversation before removing it from record
+        # Save full_conversation and images before removing them from record
+        # These are handled via separate normalized tables
         full_conversation = record.pop('full_conversation', None)
+        images_data = record.pop('images', None)
+        
+        # Convert image dictionaries back to Image objects if needed
+        images = None
+        if images_data:
+            images = []
+            for img_data in images_data:
+                if isinstance(img_data, dict):
+                    images.append(Image.from_dict(img_data))
+                elif isinstance(img_data, Image):
+                    images.append(img_data)
         
         # Filter out trace_id from both keys and values for SET clause
         update_data = {k: v for k, v in record.items() if k != 'trace_id'}
@@ -462,7 +679,7 @@ class TraceRepository(BaseRepository):
             AVG(COALESCE(total_latency_ms, 0)) as avg_latency_ms,
             AVG(COALESCE(tokens_per_second, 0)) as avg_tokens_per_second,
             COUNT(DISTINCT session_id) as unique_sessions,
-            COUNT(DISTINCT model) as unique_models
+            COUNT(DISTINCT model_id) as unique_models
         FROM {self.TABLE_NAME}{where_clause}
         """
         
@@ -486,15 +703,17 @@ class TraceRepository(BaseRepository):
         """Get token usage statistics grouped by model."""
         sql = f"""
         SELECT 
-            model,
+            m.model_name as model,
+            m.provider,
             COUNT(*) as trace_count,
-            SUM(COALESCE(total_tokens, 0)) as total_tokens,
-            SUM(COALESCE(prompt_tokens, 0)) as prompt_tokens,
-            SUM(COALESCE(completion_tokens, 0)) as completion_tokens,
-            AVG(COALESCE(total_tokens, 0)) as avg_tokens_per_trace
-        FROM {self.TABLE_NAME}
-        WHERE model IS NOT NULL
-        GROUP BY model
+            SUM(COALESCE(t.total_tokens, 0)) as total_tokens,
+            SUM(COALESCE(t.prompt_tokens, 0)) as prompt_tokens,
+            SUM(COALESCE(t.completion_tokens, 0)) as completion_tokens,
+            AVG(COALESCE(t.total_tokens, 0)) as avg_tokens_per_trace
+        FROM {self.TABLE_NAME} t
+        JOIN models m ON t.model_id = m.model_id
+        WHERE t.model_id IS NOT NULL
+        GROUP BY m.model_name, m.provider
         ORDER BY total_tokens DESC
         """
         

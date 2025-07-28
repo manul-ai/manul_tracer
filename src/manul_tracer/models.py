@@ -21,7 +21,8 @@ class Message:
     message_id: str = field(default_factory=lambda: str(uuid.uuid4()))
     trace_id: str | None = None
     role: str | None = None
-    content: str | None = None
+    content: str | list | None = None  # Allow both string and list for Vision API
+    has_images: bool = False
     message_order: int | None = None
     message_timestamp: datetime | None = None
     
@@ -36,6 +37,10 @@ class Message:
         data = asdict(self)
         if data['message_timestamp'] and isinstance(data['message_timestamp'], datetime):
             data['message_timestamp'] = data['message_timestamp'].isoformat()
+        
+        # Properly serialize content if it's a list (Vision API format)
+        if data['content'] and isinstance(data['content'], list):
+            data['content'] = json.dumps(data['content'])
         
         # Skip None values if requested
         if skip_none:
@@ -56,6 +61,16 @@ class Message:
         # Convert timestamp string back to datetime if present and it's a string
         if data.get('message_timestamp') and isinstance(data['message_timestamp'], str):
             data['message_timestamp'] = datetime.fromisoformat(data['message_timestamp'])
+        
+        # Parse content if it's a JSON string representing a list
+        if data.get('content') and isinstance(data['content'], str):
+            try:
+                # Try to parse as JSON if it looks like a list
+                if data['content'].startswith('[') and data['content'].endswith(']'):
+                    data['content'] = json.loads(data['content'])
+            except json.JSONDecodeError:
+                # If parsing fails, keep as string
+                pass
         
         return cls(**data)
 
@@ -109,15 +124,57 @@ class Session:
 
 
 @dataclass
+class Image:
+    """Image metadata for images sent in API requests."""
+    image_id: str = field(default_factory=lambda: str(uuid.uuid4()))
+    image_hash: str | None = None
+    size_mb: float | None = None
+    format: str | None = None
+    width: int | None = None
+    height: int | None = None
+    created_at: datetime | None = None
+    
+    def to_dict(self, skip_none: bool = False) -> dict[str, Any]:
+        """Convert to dictionary with proper datetime serialization.
+        
+        Args:
+            skip_none: If True, exclude key-value pairs where value is None
+        """
+        data = asdict(self)
+        if data['created_at'] and isinstance(data['created_at'], datetime):
+            data['created_at'] = data['created_at'].isoformat()
+        
+        # Skip None values if requested
+        if skip_none:
+            data = {k: v for k, v in data.items() if v is not None}
+        
+        return data
+    
+    @classmethod
+    def from_dict(cls, data: dict[str, Any]) -> 'Image':
+        """Create Image from dictionary.
+        
+        Args:
+            data: Dictionary containing image data
+            
+        Returns:
+            Image instance with proper datetime deserialization
+        """
+        # Convert timestamp string back to datetime if present and it's a string
+        if data.get('created_at') and isinstance(data['created_at'], str):
+            data['created_at'] = datetime.fromisoformat(data['created_at'])
+        
+        return cls(**data)
+
+
+@dataclass
 class TraceRecord:
     """Comprehensive trace record for LLM API calls."""
     
     trace_id: str = field(default_factory=lambda: str(uuid.uuid4()))
     session_id: str | None = None
     user_id: str | None = None
-    
-    model: str | None = None
-    provider: str = "openai"
+    model_id: str | None = None
     endpoint: str | None = None
     api_version: str | None = None
     request_timestamp: datetime | None = None
@@ -134,6 +191,7 @@ class TraceRecord:
     seed: int | None = None
     
     full_conversation: list[Message] | None = field(default_factory=list)
+    images: list[Image] | None = field(default_factory=list)
     
     finish_reason: str | None = None
     choice_index: int | None = None
@@ -284,6 +342,10 @@ class TraceRecord:
         if data['full_conversation']:
             data['full_conversation'] = [msg.to_dict(skip_none=skip_none) for msg in self.full_conversation]
         
+        # Convert Image objects to dicts
+        if data['images']:
+            data['images'] = [img.to_dict(skip_none=skip_none) for img in self.images]
+        
         if skip_none:
             data = {k: v for k, v in data.items() if v is not None}
         
@@ -309,11 +371,15 @@ class TraceRecord:
         if data.get('full_conversation'):
             messages = []
             for msg_data in data['full_conversation']:
-                # Convert timestamp string back to datetime - only if it's a string
-                if msg_data.get('message_timestamp') and isinstance(msg_data['message_timestamp'], str):
-                    msg_data['message_timestamp'] = datetime.fromisoformat(msg_data['message_timestamp'])
-                messages.append(Message(**msg_data))
+                messages.append(Message.from_dict(msg_data))
             data['full_conversation'] = messages
+        
+        # Convert image dicts back to Image objects
+        if data.get('images'):
+            images = []
+            for img_data in data['images']:
+                images.append(Image.from_dict(img_data))
+            data['images'] = images
         
         return cls(**data)
     

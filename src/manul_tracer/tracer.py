@@ -33,6 +33,9 @@ class ManulTracer:
     def __init__(
         self,
         session_id: str | None = None,
+        user_id: str | None = None,
+        username: str | None = None,
+        email: str | None = None,
         database_file: str | None = None,
         auto_save: bool = True,
         **httpx_kwargs
@@ -41,6 +44,9 @@ class ManulTracer:
         
         Args:
             session_id: Optional session identifier. If None, generates a UUID
+            user_id: Optional user identifier. If None, creates anonymous session
+            username: Optional username for user creation
+            email: Optional email for user creation
             database_file: Optional database file path. If None, uses in-memory database
             auto_save: Whether to automatically save traces to database (default True)
             **httpx_kwargs: Additional arguments passed to httpx.Client
@@ -60,6 +66,18 @@ class ManulTracer:
             self.repository = None
             self.session_repository = None
         
+        # Handle user creation/retrieval
+        self.user_id = None
+        if user_id and self.auto_save and self.repository:
+            try:
+                self.user_id = self.repository.create_or_get_user(user_id, username, email)
+                session_logger.info(f"User {user_id} created or retrieved successfully")
+            except Exception as e:
+                session_logger.warning(f"Failed to create/get user {user_id}: {e}")
+                self.user_id = user_id  # Use provided user_id anyway
+        elif user_id:
+            self.user_id = user_id
+        
         if session_id is None:
             session_id = str(uuid.uuid4())
             session_logger.info(f"Generated new session ID: {session_id}")
@@ -72,6 +90,7 @@ class ManulTracer:
         
         self.session = Session(
             session_id=session_id,
+            user_id=self.user_id,
             session_type="tracer",
             created_at=None
         )
@@ -205,7 +224,7 @@ class ManulTracer:
             
         try:
             session_logger.info(f"  Attempting to save trace {trace.trace_id} to database")
-            session_logger.debug(f"  Trace details: model={trace.model}, session_id={trace.session_id}, success={trace.success}")
+            session_logger.debug(f"  Trace details: model_id={trace.model_id}, session_id={trace.session_id}, success={trace.success}")
             self.repository.create_or_update(trace)
             session_logger.info(f"  Successfully saved trace {trace.trace_id} to database")
             

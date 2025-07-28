@@ -23,6 +23,10 @@ from .parsers import (
     is_streaming_request,
     extract_conversation_messages
 )
+from .image_utils import (
+    extract_images_from_request,
+    update_messages_with_image_references
+)
 
 
 class LogResponse(httpx.Response):
@@ -146,26 +150,55 @@ class TracedTransport(httpx.BaseTransport):
         
         trace = TraceRecord(
             session_id=self.session_id,
-            request_timestamp=start_time,
-            provider="openai"
+            user_id=self.tracer.user_id if self.tracer else None,
+            request_timestamp=start_time
         )
         
         request_dict = parse_openai_request(request)
-        trace.model = request_dict.get('model')
+        model_name = request_dict.get('model')
+        
+        # Get or create model_id from model name
+        if model_name and self.repository:
+            try:
+                trace.model_id = self.repository.create_or_get_model(model_name, "openai")
+            except Exception as e:
+                logger.warning(f"Failed to get model_id for {model_name}: {e}")
+                trace.model_id = None
+        
         trace.endpoint = str(request.url)
         trace.stream = is_streaming_request(request_dict)
         
+        # Extract images from request  
+        images = extract_images_from_request(request_dict)
+        trace.images = images
+        
         messages_data = extract_conversation_messages(request_dict)
+        
+        # Update messages with image references if images were found
+        if images:
+            messages_data = update_messages_with_image_references(messages_data, images)
+        
         messages_with_ids = []
         
         for position, msg_data in enumerate(messages_data):
+            content_str = str(msg_data.get('content', ''))
             message_id = self._get_or_assign_message_id(
                 role=msg_data['role'],
-                content=msg_data['content'] or '',
+                content=content_str,
                 position=position
             )
             
             msg_data['message_id'] = message_id
+            
+            # Check if this message contains images
+            has_images = False
+            if isinstance(msg_data.get('content'), list):
+                has_images = any(
+                    isinstance(item, dict) and item.get('type') == 'image_url'
+                    for item in msg_data['content']
+                )
+            msg_data['has_images'] = has_images
+            
             messages_with_ids.append(msg_data)
         
         trace.full_conversation = [Message(**msg) for msg in messages_with_ids]

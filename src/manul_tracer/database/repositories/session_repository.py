@@ -15,12 +15,25 @@ class SessionRepository(BaseRepository):
     def _ensure_table_exists(self) -> bool:
         """Ensure the sessions table exists in the database."""
         
+        # First ensure users table exists (dependency)
+        sql_create_users_table = """
+        CREATE TABLE IF NOT EXISTS users (
+            user_id VARCHAR PRIMARY KEY,
+            username VARCHAR,
+            email VARCHAR,
+            created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+            last_active_at TIMESTAMP
+        );
+        """
+        
         sql_create_sessions_table = f"""
         CREATE TABLE IF NOT EXISTS {self.TABLE_NAME} (
             -- Core Identifiers
             session_id VARCHAR PRIMARY KEY,
             user_id VARCHAR,
             session_type VARCHAR DEFAULT 'tracer',
+            
+            FOREIGN KEY (user_id) REFERENCES users(user_id),
             
             -- Session Metadata
             session_name VARCHAR,
@@ -51,7 +64,8 @@ class SessionRepository(BaseRepository):
             f"CREATE INDEX IF NOT EXISTS idx_sessions_is_active ON {self.TABLE_NAME}(is_active);",
         ]
         
-        # Execute table creation statement
+        # Execute table creation statements in correct order
+        self.connection.execute(sql_create_users_table)
         self.connection.execute(sql_create_sessions_table)
         
         # Create indexes

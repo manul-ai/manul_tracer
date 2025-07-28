@@ -4,6 +4,8 @@ from typing import Any
 from datetime import datetime
 import json
 import httpx
+import hashlib
+import base64
 
 
 def parse_openai_request(request: httpx.Request) -> dict[str, Any]:
@@ -225,3 +227,4 @@ def categorize_error(status_code: int, error_message: str) -> str:
             return "ClientError"
     else:
         return "UnknownError"
+

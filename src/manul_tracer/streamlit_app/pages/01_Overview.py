@@ -108,10 +108,10 @@ def main():
             
             # Show recent traces table
             st.dataframe(
-                df[['timestamp', 'model', 'total_tokens', 'latency_ms', 'success']],
+                df[['timestamp', 'model_id', 'total_tokens', 'latency_ms', 'success']],
                 column_config={
                     'timestamp': st.column_config.DatetimeColumn('Time'),
-                    'model': 'Model',
+                    'model_id': 'Model ID',
                     'total_tokens': st.column_config.NumberColumn('Tokens'),
                     'latency_ms': st.column_config.NumberColumn('Latency (ms)'),
                     'success': st.column_config.CheckboxColumn('Success')
