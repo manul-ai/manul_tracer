@@ -15,6 +15,15 @@ app_logger = logging.getLogger('streamlit_demo')
 
 load_dotenv()
 
+# Mock users for demo
+MOCK_USERS = [
+    {"user_id": "user_001", "username": "Fox", "email": "fox@example.com"},
+    {"user_id": "user_002", "username": "Eagle", "email": "eagle@example.com"},
+    {"user_id": "user_003", "username": "Bear", "email": "bear@example.com"},
+    {"user_id": "user_004", "username": "Wolf", "email": "wolf@example.com"},
+    {"user_id": "user_005", "username": "Owl", "email": "owl@example.com"},
+]
+
 def initialize_session_state():
     if "messages" not in st.session_state:
         st.session_state.messages = []
@@ -24,10 +33,25 @@ def initialize_session_state():
         st.session_state.session_id = datetime.now().strftime("%Y%m%d_%H%M%S")
         app_logger.info(f"Created new Streamlit session ID: {st.session_state.session_id}")
         
+    if "current_user" not in st.session_state:
+        # Set default user to the first one
+        st.session_state.current_user = MOCK_USERS[0]
+        app_logger.info(f"Set default user: {st.session_state.current_user['username']}")
+    
+    # Initialize selected_user if not exists (should match current_user)
+    if "selected_user" not in st.session_state:
+        st.session_state.selected_user = st.session_state.current_user
+        
     if "tracer" not in st.session_state:
-        kwargs = {"session_id": st.session_state.session_id}
+        user = st.session_state.current_user
+        kwargs = {
+            "session_id": st.session_state.session_id,
+            "user_id": user["user_id"],
+            "username": user["username"],
+            "email": user["email"]
+        }
 
-        app_logger.info(f"Creating ManulTracer with session_id: {st.session_state.session_id}")
+        app_logger.info(f"Creating ManulTracer with session_id: {st.session_state.session_id} and user: {user['username']}")
         st.session_state.tracer = ManulTracer(**kwargs, database_file="databases/traces.db", auto_save=True)
         app_logger.info("ManulTracer created and stored in session state")
     
@@ -99,6 +123,20 @@ def main():
         st.write(f"Session ID: {st.session_state.session_id}")
         st.write(f"Messages: {len(st.session_state.messages)}")
         
+        # User selection
+        st.subheader("User")
+        st.write(f"**Current User:** {st.session_state.current_user['username']}")
+        
+        user_options = {f"{u['username']} ({u['user_id']})": u for u in MOCK_USERS}
+        current_user_label = f"{st.session_state.current_user['username']} ({st.session_state.current_user['user_id']})"
+        selected_user_label = st.selectbox(
+            "Select User",
+            options=list(user_options.keys()),
+            index=list(user_options.keys()).index(current_user_label),
+            help="Select a user to associate with the tracing session"
+        )
+        selected_user = user_options[selected_user_label]
+        
         # Model selection
         model = st.selectbox(
             "Model",
@@ -121,12 +159,17 @@ def main():
             old_session_id = st.session_state.session_id
             app_logger.info(f"Clearing session {old_session_id}")
             
+            # Update current user to selected user before clearing session
+            if selected_user['user_id'] != st.session_state.current_user['user_id']:
+                app_logger.info(f"Updating user from {st.session_state.current_user['username']} to {selected_user['username']} for new session")
+                st.session_state.current_user = selected_user
+            
             st.session_state.messages = []
             st.session_state.uploaded_images = []
             st.session_state.session_id = datetime.now().strftime("%Y%m%d_%H%M%S")
             app_logger.info(f"New session ID: {st.session_state.session_id}")
             
-            # Clear tracer so it gets recreated with new session_id
+            # Clear tracer so it gets recreated with new session_id and current user
             if "tracer" in st.session_state:
                 app_logger.info(f"Removing old tracer for session {old_session_id}")
                 del st.session_state.tracer
@@ -134,6 +177,29 @@ def main():
         
         if st.button("Refresh Stats"):
             app_logger.info(f"Refreshing stats for session {st.session_state.session_id}")
+            
+            # Check if user changed by comparing user_id
+            if selected_user['user_id'] != st.session_state.current_user['user_id']:
+                app_logger.info(f"User changed from {st.session_state.current_user['username']} to {selected_user['username']}")
+                st.session_state.current_user = selected_user
+                
+                # Close old tracer
+                if "tracer" in st.session_state and st.session_state.tracer:
+                    st.session_state.tracer.close()
+                    del st.session_state.tracer
+                
+                # Create new tracer with updated user
+                user = st.session_state.current_user
+                kwargs = {
+                    "session_id": st.session_state.session_id,
+                    "user_id": user["user_id"],
+                    "username": user["username"],
+                    "email": user["email"]
+                }
+                
+                app_logger.info(f"Creating new ManulTracer with user: {user['username']}")
+                st.session_state.tracer = ManulTracer(**kwargs, database_file="databases/traces.db", auto_save=True)
+            
             st.rerun()
         
         st.divider()

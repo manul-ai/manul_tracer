@@ -848,3 +848,38 @@ class TraceRepository(BaseRepository):
                 traces.append(trace)
         
         return traces
+    
+    def get_all_users(self) -> list[dict[str, Any]]:
+        """Get all users from the database.
+        
+        Returns:
+            List of user dictionaries with user_id, username, email
+        """
+        sql = """
+        SELECT user_id, username, email, created_at, last_active_at
+        FROM users
+        ORDER BY username
+        """
+        
+        df = self.connection.execute(sql).fetchdf()
+        return df.to_dict('records') if not df.empty else []
+    
+    def get_user_by_id(self, user_id: str) -> dict[str, Any] | None:
+        """Get user information by user_id.
+        
+        Args:
+            user_id: The user ID to look up
+            
+        Returns:
+            User dictionary or None if not found
+        """
+        sql = """
+        SELECT user_id, username, email, created_at, last_active_at
+        FROM users
+        WHERE user_id = ?
+        """
+        
+        df = self.connection.execute(sql, (user_id,)).fetchdf()
+        if not df.empty:
+            return df.to_dict('records')[0]
+        return None

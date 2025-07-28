@@ -66,7 +66,7 @@ def main():
         df_sessions = pd.DataFrame(sessions)
         
         # Session filters
-        col1, col2, col3 = st.columns(3)
+        col1, col2, col3, col4 = st.columns(4)
         
         with col1:
             session_types = df_sessions['session_type'].dropna().unique()
@@ -77,6 +77,21 @@ def main():
             )
         
         with col2:
+            # Filter by user
+            unique_users = df_sessions[['user_id', 'username']].drop_duplicates()
+            user_options = ['All']
+            for _, row in unique_users.iterrows():
+                if row['username']:
+                    user_options.append(f"{row['username']} ({row['user_id']})")
+                elif row['user_id']:
+                    user_options.append(row['user_id'])
+            selected_user = st.selectbox(
+                "Filter by User",
+                options=user_options,
+                index=0
+            )
+        
+        with col3:
             min_traces = st.number_input(
                 "Minimum Traces", 
                 min_value=0, 
@@ -84,7 +99,7 @@ def main():
                 help="Show only sessions with at least this many traces"
             )
         
-        with col3:
+        with col4:
             # Search by session ID
             session_search = st.text_input("Search Session ID", help="Enter part of session ID")
         
@@ -92,6 +107,13 @@ def main():
         filtered_df = df_sessions.copy()
         if selected_type != 'All':
             filtered_df = filtered_df[filtered_df['session_type'] == selected_type]
+        if selected_user != 'All':
+            # Extract user_id from selection
+            if '(' in selected_user:
+                user_id = selected_user.split('(')[-1].rstrip(')')
+            else:
+                user_id = selected_user
+            filtered_df = filtered_df[filtered_df['user_id'] == user_id]
         if min_traces > 0:
             filtered_df = filtered_df[filtered_df['trace_count'] >= min_traces]
         if session_search:
@@ -119,6 +141,12 @@ def main():
                     st.write("**Session Information**")
                     st.write(f"**ID:** {session_info['session_id']}")
                     st.write(f"**Type:** {session_info.get('session_type', 'N/A')}")
+                    if session_info.get('username'):
+                        st.write(f"**User:** {session_info['username']} ({session_info.get('user_id', 'N/A')})")
+                    elif session_info.get('user_id'):
+                        st.write(f"**User ID:** {session_info['user_id']}")
+                    else:
+                        st.write(f"**User:** Anonymous")
                     st.write(f"**Created:** {session_info.get('created_at', 'N/A')}")
                     st.write(f"**Ended:** {session_info.get('ended_at', 'Active')}")
                 
@@ -229,6 +257,15 @@ def main():
                                         st.write("**Trace Information**")
                                         st.write(f"**ID:** {full_trace.trace_id}")
                                         st.write(f"**Session:** {full_trace.session_id}")
+                                        
+                                        # Get user info for trace
+                                        if full_trace.user_id:
+                                            user_info = trace_repo.get_user_by_id(full_trace.user_id)
+                                            if user_info and user_info.get('username'):
+                                                st.write(f"**User:** {user_info['username']} ({full_trace.user_id})")
+                                            else:
+                                                st.write(f"**User ID:** {full_trace.user_id}")
+                                        
                                         st.write(f"**Model ID:** {full_trace.model_id}")
                                         if hasattr(full_trace, 'provider'):
                                             st.write(f"**Provider:** {full_trace.provider}")

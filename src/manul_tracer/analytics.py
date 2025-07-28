@@ -65,6 +65,9 @@ class AnalyticsService:
         """Get session-level analytics."""
         sessions = self.session_repo.list_all()
         
+        # Get all users for lookup
+        users = {u['user_id']: u for u in self.trace_repo.get_all_users()}
+        
         # Calculate session durations
         session_data = []
         for session in sessions:
@@ -77,8 +80,13 @@ class AnalyticsService:
             # Get traces for this session
             traces = self.trace_repo.get_by_session(session.session_id)
             
+            # Get user info
+            user_info = users.get(session.user_id) if session.user_id else None
+            
             session_data.append({
                 'session_id': session.session_id,
+                'user_id': session.user_id,
+                'username': user_info['username'] if user_info else None,
                 'session_type': session.session_type,
                 'created_at': session.created_at.isoformat() if session.created_at else None,
                 'ended_at': session.ended_at.isoformat() if session.ended_at else None,
@@ -121,11 +129,16 @@ class AnalyticsService:
             cutoff = datetime.now() - timedelta(hours=hours_back)
             traces = [t for t in traces if t.request_timestamp and t.request_timestamp >= cutoff]
         
+        # Get all users for lookup
+        users = {u['user_id']: u for u in self.trace_repo.get_all_users()}
+        
         # Convert to simple dict format for UI
         return [
             {
                 'trace_id': t.trace_id,
                 'session_id': t.session_id,
+                'user_id': t.user_id,
+                'username': users.get(t.user_id, {}).get('username') if t.user_id else None,
                 'model_id': t.model_id,
                 'total_tokens': t.total_tokens or 0,
                 'latency_ms': t.total_latency_ms or 0,
